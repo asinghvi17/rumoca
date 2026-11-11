@@ -238,6 +238,16 @@ fn render_var_ref(var_ref: &Value, cfg: &ExprConfig) -> RenderResult {
     if let Some(relation) = condition_alias_relation(cfg.condition_aliases.as_ref(), &source_ref)? {
         return render_expression(&relation, cfg);
     }
+    if cfg.base_modelica && cfg.scalarize {
+        if source_ref != raw_name {
+            return scalar_element_symbol(&raw_name, &source_ref);
+        }
+        if declared_array(cfg, &raw_name) {
+            return Err(render_err(format!(
+                "cannot scalarize the whole-array reference `{raw_name}`; use the `base-modelica` target"
+            )));
+        }
+    }
 
     let subscripts = render_subscripts(var_ref, cfg)?;
     if subscripts.is_empty() {
@@ -263,6 +273,33 @@ fn render_var_ref(var_ref: &Value, cfg: &ExprConfig) -> RenderResult {
         let name = super::emitted_variable_symbol(&raw_name, cfg)?;
         Ok(format!("{}[{}]", name, subscripts))
     }
+}
+
+/// Whether `name` is a declared variable (in `quote_names`) with dimensions.
+fn declared_array(cfg: &ExprConfig, name: &str) -> bool {
+    cfg.quote_names
+        .as_ref()
+        .and_then(|names| names.get_item(&Value::from(name)).ok())
+        .and_then(|var| var.get_attr("dims").ok())
+        .and_then(|dims| dims.len())
+        .is_some_and(|len| len > 0)
+}
+
+/// The scalarized Base Modelica name of one array element, `'x[2,1]'`: the
+/// declaration a scalarized model gives each element of `x`.
+fn scalar_element_symbol(raw_name: &str, source_ref: &str) -> RenderResult {
+    let subscripts = source_ref
+        .strip_prefix(raw_name)
+        .and_then(|rest| rest.strip_prefix('['))
+        .and_then(|rest| rest.strip_suffix(']'));
+    let constant = subscripts
+        .is_some_and(|subs| !subs.is_empty() && subs.split(',').all(|s| s.parse::<i64>().is_ok()));
+    if !constant {
+        return Err(render_err(format!(
+            "cannot scalarize `{source_ref}`: its subscripts are not constant"
+        )));
+    }
+    Ok(super::quote_identifier(source_ref))
 }
 
 fn var_ref_source_ref(raw_name: &str, var_ref: &Value) -> RenderResult {
@@ -442,7 +479,9 @@ fn render_builtin(builtin: &Value, cfg: &ExprConfig) -> RenderResult {
     // These must be handled before render_args() to avoid rendering the
     // wrapper arguments as a flat list.
     match func_name.as_str() {
-        "Smooth" | "NoEvent" | "Homotopy" => {
+        // Base Modelica keeps these operators (MCP-0031 functions.md); only
+        // targets without event semantics strip them to their expression.
+        "Smooth" | "NoEvent" | "Homotopy" if !cfg.base_modelica => {
             let args_val = get_field(builtin, "args")?;
             // Smooth: arg[1] is the expression (arg[0] is smoothness order)
             // Homotopy: arg[0] is the actual expression (arg[1] is simplified)
@@ -586,6 +625,8 @@ fn render_builtin_modelica(func_name: &str, args: &str, _cfg: &ExprConfig) -> St
         // MLS §3.7.4.5 spells the operator in camel case; the lowercase fallback
         // below would emit Modelica that no longer names the builtin.
         "SemiLinear" => format!("semiLinear({})", args),
+        "NoEvent" => format!("noEvent({})", args),
+        "OuterProduct" => format!("outerProduct({})", args),
         _ => format!("{}({})", func_name.to_lowercase(), args),
     }
 }
@@ -746,7 +787,15 @@ fn render_function_call(func_call: &Value, cfg: &ExprConfig) -> RenderResult {
         return render_builtin_python(builtin, &args, cfg);
     }
 
-    let name = super::emitted_symbol(&raw_name, cfg)?;
+    let mut name = super::emitted_symbol(&raw_name, cfg)?;
+    if cfg.base_modelica
+        && cfg
+            .quote_functions
+            .as_ref()
+            .is_some_and(|functions| super::names_contain(functions, &raw_name))
+    {
+        name = super::quote_identifier(&name);
+    }
 
     let args = render_args(func_call, cfg)?;
     Ok(format!("{}({})", name, args))
@@ -754,7 +803,7 @@ fn render_function_call(func_call: &Value, cfg: &ExprConfig) -> RenderResult {
 
 /// Map Modelica.Math.* function names to their BuiltinCall equivalents.
 /// Returns the builtin function name (e.g., "Sin", "Cos") if recognized.
-fn resolve_modelica_math_function(name: &str) -> Option<&'static str> {
+pub(crate) fn resolve_modelica_math_function(name: &str) -> Option<&'static str> {
     match name {
         "Modelica.Math.sin" => Some("Sin"),
         "Modelica.Math.cos" => Some("Cos"),
@@ -807,14 +856,14 @@ fn render_literal(literal: &Value, cfg: &ExprConfig) -> RenderResult {
             let s = real.to_string();
             return Ok(render_c_float_literal(&s));
         }
-        return Ok(real.to_string());
+        return Ok(signed_literal(real.to_string(), cfg));
     }
     if let Ok(int) = get_field(&literal_value, "Integer") {
         let int = spanned_literal_value(int);
         if cfg.float_literals {
             return Ok(format!("{}.0f", int));
         }
-        return Ok(int.to_string());
+        return Ok(signed_literal(int.to_string(), cfg));
     }
     if let Ok(b) = get_field(&literal_value, "Boolean") {
         let b = spanned_literal_value(b);
@@ -831,6 +880,16 @@ fn render_literal(literal: &Value, cfg: &ExprConfig) -> RenderResult {
     Err(render_err(format!(
         "unhandled literal variant: {literal_value}"
     )))
+}
+
+/// Base Modelica has no signed primary (`a * -1` does not parse), so a
+/// negative literal is parenthesized there.
+fn signed_literal(text: String, cfg: &ExprConfig) -> String {
+    if cfg.base_modelica && text.starts_with('-') {
+        format!("({text})")
+    } else {
+        text
+    }
 }
 
 fn spanned_literal_value(value: Value) -> Value {

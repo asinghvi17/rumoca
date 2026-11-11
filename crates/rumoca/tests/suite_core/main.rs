@@ -59,6 +59,7 @@ mod array_subscript_test;
 mod assertion_warning_level;
 mod backend_executor_differential;
 mod balance_diagnostic;
+mod base_modelica_target;
 mod bdf_episode_reset_intervals;
 mod bilinear_function_constraint;
 mod boolean_connections;

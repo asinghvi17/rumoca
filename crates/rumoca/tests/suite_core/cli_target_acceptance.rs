@@ -238,16 +238,12 @@ fn builtin_flat_targets_still_render() {
     }
 }
 
-/// The built-in flat templates render neither `when` chains nor algorithm
-/// sections. They declare both unsupported, so a model carrying either is
-/// refused instead of being emitted without it (the emitted model would still
-/// compile, with different dynamics).
-#[test]
-fn builtin_flat_targets_refuse_when_and_algorithms_they_cannot_render() {
-    let cases = [
-        (
-            "events",
-            "model FlatWhenFixture
+/// One model with a `when` chain (`reinit`) and one with an algorithm section,
+/// keyed by the capability each exercises.
+const WHEN_AND_ALGORITHM_FIXTURES: [(&str, &str); 2] = [
+    (
+        "events",
+        "model FlatWhenFixture
   Real x(start = 1, fixed = true);
   Real v(start = 0, fixed = true);
 equation
@@ -258,10 +254,10 @@ equation
   end when;
 end FlatWhenFixture;
 ",
-        ),
-        (
-            "algorithms",
-            "model FlatAlgorithmFixture
+    ),
+    (
+        "algorithms",
+        "model FlatAlgorithmFixture
   Real x(start = 1, fixed = true);
   Real y;
 equation
@@ -270,37 +266,83 @@ algorithm
   y := 2*x;
 end FlatAlgorithmFixture;
 ",
-        ),
-    ];
+    ),
+];
+
+/// The `flat-modelica` template renders neither `when` chains nor algorithm
+/// sections. It declares both unsupported, so a model carrying either is
+/// refused instead of being emitted without it (the emitted model would still
+/// compile, with different dynamics). `base-modelica` renders both.
+#[test]
+fn builtin_flat_targets_refuse_when_and_algorithms_they_cannot_render() {
     let dir = tempdir().expect("tempdir");
-    for (feature, source) in cases {
+    for (feature, source) in WHEN_AND_ALGORITHM_FIXTURES {
         let model_file = dir.path().join(format!("{feature}.mo"));
         fs::write(&model_file, source).expect("write model fixture");
-        for target in ["flat-modelica", "base-modelica"] {
-            let out_dir = dir.path().join(format!("{feature}-{target}"));
-            let output = Command::new(env!("CARGO_BIN_EXE_rumoca"))
-                .arg("compile")
-                .arg(&model_file)
-                .arg("--target")
-                .arg(target)
-                .arg("--output")
-                .arg(&out_dir)
-                .output()
-                .expect("run rumoca compile --target");
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(
-                !output.status.success(),
-                "`{target}` must refuse a model with {feature} it cannot render:\n{stderr}"
-            );
-            assert!(
-                stderr.contains(&format!("unsupported-feature:{feature}")),
-                "`{target}` must refuse with unsupported-feature:{feature}:\n{stderr}"
-            );
-            assert!(
-                !rendered_any_file(&out_dir),
-                "`{target}` must not write a partial model:\n{stderr}"
-            );
-        }
+        let target = "flat-modelica";
+        let out_dir = dir.path().join(format!("{feature}-{target}"));
+        let output = Command::new(env!("CARGO_BIN_EXE_rumoca"))
+            .arg("compile")
+            .arg(&model_file)
+            .arg("--target")
+            .arg(target)
+            .arg("--output")
+            .arg(&out_dir)
+            .output()
+            .expect("run rumoca compile --target");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success(),
+            "`{target}` must refuse a model with {feature} it cannot render:\n{stderr}"
+        );
+        assert!(
+            stderr.contains(&format!("unsupported-feature:{feature}")),
+            "`{target}` must refuse with unsupported-feature:{feature}:\n{stderr}"
+        );
+        assert!(
+            !rendered_any_file(&out_dir),
+            "`{target}` must not write a partial model:\n{stderr}"
+        );
+    }
+}
+
+/// `base-modelica` renders `when` chains and algorithm sections, so the same
+/// fixtures render through it instead of being refused.
+#[test]
+fn base_modelica_renders_when_and_algorithms() {
+    let dir = tempdir().expect("tempdir");
+    for (feature, source) in WHEN_AND_ALGORITHM_FIXTURES {
+        let model_file = dir.path().join(format!("{feature}.mo"));
+        fs::write(&model_file, source).expect("write model fixture");
+        let out_dir = dir.path().join(format!("{feature}-base-modelica"));
+        let output = Command::new(env!("CARGO_BIN_EXE_rumoca"))
+            .arg("compile")
+            .arg(&model_file)
+            .arg("--target")
+            .arg("base-modelica")
+            .arg("--output")
+            .arg(&out_dir)
+            .output()
+            .expect("run rumoca compile --target");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "`base-modelica` must render a model with {feature}:\n{stderr}"
+        );
+        let rendered = fs::read_dir(&out_dir)
+            .expect("output directory")
+            .flatten()
+            .map(|entry| fs::read_to_string(entry.path()).expect("read rendered file"))
+            .collect::<String>();
+        let expected = if feature == "events" {
+            "reinit('v', "
+        } else {
+            "  algorithm\n    'y' := "
+        };
+        assert!(
+            rendered.contains(expected),
+            "missing `{expected}` for {feature}:\n{rendered}"
+        );
     }
 }
 

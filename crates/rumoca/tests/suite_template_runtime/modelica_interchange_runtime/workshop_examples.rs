@@ -156,12 +156,19 @@ fn retain_omc_evidence(
     eprintln!("OMC evidence retained at {}", directory.display());
 }
 
+/// The class to load from an export: the flattened name, inside a package of
+/// the same quoted name for Base Modelica (MCP-0031).
+fn exported_model_path(example: &Example, target: &str) -> String {
+    let flat_name = example.name.replace('.', "_");
+    match target {
+        "original" => example.name.to_owned(),
+        "base-modelica" => format!("'{flat_name}'.'{flat_name}'"),
+        _ => flat_name,
+    }
+}
+
 fn run_omc(example: &Example, source: &str, target: &str) -> OmcResult {
-    let model = if target == "original" {
-        example.name.to_owned()
-    } else {
-        example.name.replace('.', "_")
-    };
+    let model = exported_model_path(example, target);
     let directory = tempfile::tempdir().expect("OMC products directory");
     fs::write(directory.path().join("model.mo"), source).expect("write Modelica source");
     fs::write(
@@ -368,7 +375,7 @@ fn assert_export_roundtrips(example: &Example, source: &str) {
         assert_eq!(files.len(), 1, "one complete Modelica document");
         let file = files.remove(0);
         Compiler::new()
-            .model(&example.name.replace('.', "_"))
+            .model(&exported_model_path(example, target))
             .compile_str(&file.content, &file.path)
             .unwrap_or_else(|error| panic!("Rumoca reload {target}/{}: {error:#}", example.name));
         let actual = run_omc(example, &file.content, target);

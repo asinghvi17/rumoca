@@ -25,6 +25,23 @@ pub(crate) struct ExprConfig {
     /// names found here are quoted, so enumeration literals and other dotted
     /// type paths (`Modelica.Blocks.Types.Init.InitialState`) stay unquoted.
     pub(crate) quote_names: Option<Value>,
+    /// Base Modelica (MCP-0031) output: every declared variable in
+    /// `quote_names` and every function in `quote_functions` is a quoted
+    /// identifier whether or not it is dotted, negative literals are
+    /// parenthesized (the grammar has no signed primary), and the event
+    /// operators `noEvent`/`smooth`/`homotopy` are kept, not stripped.
+    pub(crate) base_modelica: bool,
+    /// Function names (a map keyed by name, or a sequence) that `base_modelica`
+    /// renders as quoted identifiers, i.e. the functions the package declares.
+    pub(crate) quote_functions: Option<Value>,
+    /// Enumeration type names that `base_modelica` renders as quoted
+    /// identifiers, so a literal reads `'Pkg.E'.literal` (MCP-0031 has no
+    /// class hierarchy to look the dotted path up in).
+    pub(crate) quote_types: Option<Value>,
+    /// With `base_modelica`: an array element with constant subscripts renders
+    /// as one scalar quoted identifier (`x[2]` -> `'x[2]'`), the naming of a
+    /// scalarized declaration.
+    pub(crate) scalarize: bool,
     /// When true, use 1-based indexing (Modelica) instead of 0-based (Python).
     pub(crate) one_based_index: bool,
     /// When true, use Modelica builtin names (abs, min, max) instead of Python (fabs, fmin, fmax).
@@ -85,6 +102,10 @@ impl Default for ExprConfig {
             sanitize_dots: true,
             quote_dotted: false,
             quote_names: None,
+            base_modelica: false,
+            quote_functions: None,
+            quote_types: None,
+            scalarize: false,
             one_based_index: false,
             modelica_builtins: false,
             mul_elem_fn: None,
@@ -167,6 +188,14 @@ impl ExprConfig {
         }
         if let Some(names) = get_present_attr(v, "quote_names") {
             cfg.quote_names = Some(names);
+        }
+        if let Some(enabled) = get_bool_attr(v, "base_modelica") {
+            cfg.base_modelica = enabled;
+        }
+        cfg.quote_functions = get_present_attr(v, "quote_functions");
+        cfg.quote_types = get_present_attr(v, "quote_types");
+        if let Some(enabled) = get_bool_attr(v, "scalarize") {
+            cfg.scalarize = enabled;
         }
         if let Some(enabled) = get_bool_attr(v, "one_based_index") {
             cfg.one_based_index = enabled;

@@ -552,6 +552,27 @@ pub(super) fn lookup_symbol_value(symbols: Option<&Value>, name: &str) -> Option
 /// hierarchical path (`src.p.v` -> `'src.p.v'`) or a generated name (`$...`).
 pub(super) fn emitted_variable_symbol(reference: &str, cfg: &ExprConfig) -> RenderResult {
     let symbol = emitted_symbol(reference, cfg)?;
+    if cfg.base_modelica {
+        // MCP-0031 spells every declared component as a quoted identifier;
+        // `time`, loop indices and other undeclared names stay bare.
+        let declared = cfg
+            .quote_names
+            .as_ref()
+            .is_none_or(|names| names_contain(names, reference));
+        if (declared && reference != "time") || symbol.contains('$') {
+            return Ok(quote_identifier(&symbol));
+        }
+        // An enumeration literal: `'Pkg.E'.literal`.
+        if let Some((type_name, literal)) = rumoca_core::split_last_top_level(&symbol)
+            && cfg
+                .quote_types
+                .as_ref()
+                .is_some_and(|types| names_contain(types, type_name))
+        {
+            return Ok(format!("{}.{literal}", quote_identifier(type_name)));
+        }
+        return Ok(symbol);
+    }
     let declared = cfg.quote_names.as_ref().is_none_or(|names| {
         names
             .get_item(&Value::from(reference))
@@ -568,6 +589,37 @@ pub(super) fn emitted_variable_symbol(reference: &str, cfg: &ExprConfig) -> Rend
         return Ok(format!("'{symbol}'"));
     }
     Ok(symbol)
+}
+
+/// Whether `names` (a map keyed by name, or any iterable of names, such as a
+/// list a template concatenated) holds `name`.
+pub(super) fn names_contain(names: &Value, name: &str) -> bool {
+    if names.kind() == minijinja::value::ValueKind::Map {
+        return names
+            .get_item(&Value::from(name))
+            .is_ok_and(|entry| !entry.is_undefined() && !entry.is_none());
+    }
+    names
+        .try_iter()
+        .is_ok_and(|mut items| items.any(|item| item.as_str() == Some(name)))
+}
+
+/// `name` as a Modelica Q-IDENT (MLS 2.3.1): single quotes with `\` and `'`
+/// escaped. An already quoted name is returned unchanged.
+pub(crate) fn quote_identifier(name: &str) -> String {
+    if name.len() >= 2 && name.starts_with('\'') && name.ends_with('\'') {
+        return name.to_string();
+    }
+    let mut quoted = String::with_capacity(name.len() + 2);
+    quoted.push('\'');
+    for ch in name.chars() {
+        if matches!(ch, '\\' | '\'') {
+            quoted.push('\\');
+        }
+        quoted.push(ch);
+    }
+    quoted.push('\'');
+    quoted
 }
 
 pub(super) fn emitted_symbol(reference: &str, cfg: &ExprConfig) -> RenderResult {

@@ -10,6 +10,10 @@ use rumoca_ir_solve as solve;
 use serde::Serialize;
 
 mod algorithm_code_renderer;
+mod base_modelica;
+mod base_modelica_scalarize;
+#[cfg(test)]
+mod base_modelica_tests;
 #[cfg(test)]
 mod checked_dae_diagnostic_tests;
 #[cfg(test)]
@@ -91,7 +95,7 @@ use render_solve::{
 use render_stmt::{render_equation, render_flat_equation, render_statement, render_statements};
 use symbol_alloc::{
     allocate_symbols_function, emitted_symbol, emitted_variable_symbol, lookup_symbol_value,
-    symbol_function,
+    names_contain, quote_identifier, symbol_function,
 };
 
 pub use me_projection::me_refresh_admissible;
@@ -855,6 +859,18 @@ fn create_environment() -> Environment<'static> {
 
     // Custom function for flat equation rendering (Model residual equations)
     env.add_function("render_flat_equation", render_flat_equation_function);
+    env.add_function("quote_ident", base_modelica::quote_ident_function);
+    env.add_function("is_builtin_alias", base_modelica::is_builtin_alias_function);
+    env.add_function("scalar_indices", base_modelica::scalar_indices_function);
+    env.add_function("array_element", base_modelica::array_element_function);
+    env.add_function(
+        "scalarize_equation",
+        base_modelica_scalarize::scalarize_equation_function,
+    );
+    env.add_function(
+        "unroll_family",
+        base_modelica_scalarize::unroll_family_function,
+    );
 
     // Custom function for detecting self-referential (builtin alias) functions
     env.add_function("is_self_call", is_self_call_function);

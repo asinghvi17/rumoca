@@ -98,6 +98,10 @@ impl CheckedView {
 /// One row per built-in code-gen target, keyed by registry name.
 const BUILTIN_TARGET_SURFACES: &[(&str, CheckedView)] = &[
     ("base-modelica", CheckedView::MaterializedFlatEquations),
+    (
+        "base-modelica-scalar",
+        CheckedView::MaterializedFlatEquations,
+    ),
     ("casadi-ode", CheckedView::CheckedSolveProblem),
     ("c-ode", CheckedView::CheckedSolveProblem),
     ("cuda-ode", CheckedView::CheckedSolveProblem),

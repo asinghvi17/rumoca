@@ -1,14 +1,21 @@
-{#- BaseModelica output — flat model in the BaseModelica interchange format.
-    Ref: Modelica Association BaseModelica specification (2021+).
+{#- Base Modelica (MCP-0031, `//! base 0.1.0`) rendering of a flat model.
 
-    Differences from flat_modelica.mo.jinja:
-    - Emits `model` class keyword (not `class`), matching BaseModelica §2
-    - Sections are labelled with explicit comments for toolchain interop
-    - State variable derivatives are declared as explicit Real variables
-      (der_x) alongside the state x, per BaseModelica convention
-    - Protected section uses BaseModelica's `protected` block syntax
-    - Function bodies are included where available
+    One `package 'M'` holds the enumeration types and user functions the
+    model uses, then `model 'M'`. Every declared component, function and
+    enumeration type is a quoted identifier; there is no `protected`, `final`
+    or class hierarchy (MCP-0031 grammar). `when` chains, `reinit`, algorithm
+    sections and assertions are kept.
+
+    `scalarize` (set by the `base-modelica-scalar` target before including
+    this file) declares each array element as its own scalar (`'x[2]'`),
+    unrolls `for` families and splits elementwise array equations into one
+    scalar equation per element, for consumers that do not handle arrays.
 -#}
+{%- set scalarize = scalarize | default(false) %}
+{%- set ns_enum = namespace(names=[]) %}
+{%- for _id, decl in flat.enumeration_declarations | items %}
+{%- set ns_enum.names = ns_enum.names + [decl.name] %}
+{%- endfor %}
 {%- set cfg = {
   "power": "^",
   "and_op": "and",
@@ -20,64 +27,24 @@
   "array_end": "}",
   "if_style": "modelica",
   "sanitize_dots": false,
-  "quote_dotted": true,
+  "base_modelica": true,
+  "scalarize": scalarize,
   "quote_names": flat.variables,
+  "quote_functions": flat.functions,
+  "quote_types": ns_enum.names,
   "one_based_index": true,
   "modelica_builtins": true
 } %}
 
-{#- ── Macros (shared with flat_modelica) ─────────────────────────────────────#}
-{#- Macro: a flattened hierarchical name as a quoted Modelica identifier -#}
-{#- Macro: one equation partition, each unmaterialized `for` family as a loop -#}
-{%- macro equation_rows(rows) -%}
-{%- for row in rows %}
-{%- if "loop" in row %}
-{%- for header in row.loop.headers %}
-  {{ header }}
-{%- endfor %}
-{%- for eq in row.loop.equations %}
-    {{ render_flat_equation(eq, cfg) }};
-{%- endfor %}
-{%- for _ in row.loop.headers %}
-  end for;
-{%- endfor %}
-{%- else %}
-  {{ render_flat_equation(row.equation, cfg) }};
-{%- endif %}
-{%- endfor %}
+{#- ── Declarations ──────────────────────────────────────────────────────────#}
+{#- The declared type: a predefined type stays bare, an enumeration (or any
+    other named type) is the quoted package-level class. -#}
+{%- macro type_name(name) -%}
+{%- set t = flat_type_names[name] | default(flat.variable_type_names[name] | default("Real")) -%}
+{{ t if t in ["Real", "Integer", "Boolean", "String"] else quote_ident(t) }}
 {%- endmacro -%}
-{%- macro qname(name) -%}{{ ("'" ~ name ~ "'") if ("." in name or "$" in name) else name }}{%- endmacro -%}
-{#- Macro: one scalar attribute modifier; `each` on an array variable unless
-    the value is itself an array literal (MLS 7.2.5) -#}
-{#- Whether `expr` is an unsubscripted reference to an array variable, an
-    array value that must not take `each`. -#}
-{%- macro array_ref(expr) -%}
-{%- if expr is mapping and "VarRef" in expr and not expr.VarRef.subscripts and expr.VarRef.name.name in flat.variables and flat.variables[expr.VarRef.name.name].dims | length > 0 -%}yes{%- endif -%}
-{%- endmacro -%}
-{%- macro scalar_mod(var, key, value, expr=none) -%}{{ ("each " if var.dims | length > 0 and value[:1] not in ["{", "["] and not array_ref(expr) else "") ~ key ~ " = " ~ value }}{%- endmacro -%}
-{%- macro var_attrs(var) -%}
-{%- set ns = namespace(parts="") -%}
-{%- if var.quantity -%}{%- set ns.parts = ns.parts ~ (", " if ns.parts else "") ~ 'quantity = "' ~ var.quantity ~ '"' -%}{%- endif -%}
-{%- if var.unit -%}{%- set ns.parts = ns.parts ~ (", " if ns.parts else "") ~ 'unit = "' ~ var.unit ~ '"' -%}{%- endif -%}
-{%- if var.display_unit -%}{%- set ns.parts = ns.parts ~ (", " if ns.parts else "") ~ 'displayUnit = "' ~ var.display_unit ~ '"' -%}{%- endif -%}
-{%- if var.min is not none -%}{%- set ns.parts = ns.parts ~ (", " if ns.parts else "") ~ scalar_mod(var, "min", render_expr(var.min, cfg), var.min) -%}{%- endif -%}
-{%- if var.max is not none -%}{%- set ns.parts = ns.parts ~ (", " if ns.parts else "") ~ scalar_mod(var, "max", render_expr(var.max, cfg), var.max) -%}{%- endif -%}
-{%- if var.start is not none -%}{%- set ns.parts = ns.parts ~ (", " if ns.parts else "") ~ scalar_mod(var, "start", render_expr(var.start, cfg), var.start) -%}{%- endif -%}
-{%- if var.fixed is not none -%}{%- set ns.parts = ns.parts ~ (", " if ns.parts else "") ~ scalar_mod(var, "fixed", ("true" if var.fixed else "false")) -%}{%- endif -%}
-{%- if var.nominal is not none -%}{%- set ns.parts = ns.parts ~ (", " if ns.parts else "") ~ scalar_mod(var, "nominal", render_expr(var.nominal, cfg), var.nominal) -%}{%- endif -%}
-{%- if ns.parts %}({{ ns.parts }}){% endif -%}
-{%- endmacro %}
 
-{%- macro var_desc(var) -%}
-{%- if var.description %} "{{ var.description }}"{% endif -%}
-{%- endmacro %}
-
-{%- macro dims(var) -%}
-{%- if var.dims | length > 0 %}[{{ var.dims | join(", ") }}]{% endif -%}
-{%- endmacro %}
-
-{%- macro var_prefix(flat, name, var) -%}
-{%- if flat.variable_final_flags[name] | default(false) %}final {% endif -%}
+{%- macro prefix(name, var) -%}
 {%- if var.variability is mapping and var.variability.Parameter is defined %}parameter {% endif -%}
 {%- if var.variability is mapping and var.variability.Constant is defined %}constant {% endif -%}
 {%- if var.variability is mapping and var.variability.Discrete is defined %}discrete {% endif -%}
@@ -85,66 +52,238 @@
     input (`rover.throttle`) is bound by its parent, not by the host. -#}
 {%- if var.causality is mapping and var.causality.Input is defined and "." not in name %}input {% endif -%}
 {%- if var.causality is mapping and var.causality.Output is defined and "." not in name %}output {% endif -%}
-{%- endmacro %}
+{%- endmacro -%}
 
-{%- macro binding(var) -%}
+{#- Whether `expr` is an unsubscripted reference to an array variable, an
+    array value that is not spread with `fill`. -#}
+{%- macro array_ref(expr) -%}
+{%- if expr is mapping and "VarRef" in expr and not expr.VarRef.subscripts and expr.VarRef.name.name in flat.variables and flat.variables[expr.VarRef.name.name].dims | length > 0 -%}yes{%- endif -%}
+{%- endmacro -%}
+
+{#- One attribute modifier of a whole declaration. MCP-0031 has no `each`, so
+    a scalar value on an array variable is spread with `fill`. -#}
+{%- macro mod(var, key, value, expr=none) -%}
+{%- set array_valued = value[:1] in ["{", "["] or value[:5] == "fill(" or value[:6] == "zeros(" or value[:5] == "ones(" or array_ref(expr) -%}
+{%- if var.dims | length > 0 and not array_valued -%}
+{{ key }} = fill({{ value }}, {{ var.dims | join(", ") }})
+{%- else -%}
+{{ key }} = {{ value }}
+{%- endif -%}
+{%- endmacro -%}
+
+{#- `fixed` is stored per element: one value broadcasts. -#}
+{%- macro fixed_value(var, index=none) -%}
+{%- if index is not none and var.fixed | length > 1 -%}
+{{ "true" if var.fixed[loop_position(var, index)] else "false" }}
+{%- elif var.fixed | length == 1 -%}
+{{ "true" if var.fixed[0] else "false" }}
+{%- else -%}
+{{ "{" ~ (var.fixed | map("lower") | join(", ")) ~ "}" }}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro loop_position(var, index) -%}
+{%- for candidate in scalar_indices(var.dims) %}{% if candidate == index %}{{ loop.index0 }}{% endif %}{% endfor -%}
+{%- endmacro -%}
+
+{#- The attribute list of a declaration. `index` selects one element of an
+    array variable (scalarized declaration). -#}
+{%- macro attrs(var, index=none) -%}
+{%- set ns = namespace(parts=[]) -%}
+{%- if var.quantity %}{% set ns.parts = ns.parts + ['quantity = "' ~ var.quantity ~ '"'] %}{% endif -%}
+{%- if var.unit %}{% set ns.parts = ns.parts + ['unit = "' ~ var.unit ~ '"'] %}{% endif -%}
+{%- if var.display_unit %}{% set ns.parts = ns.parts + ['displayUnit = "' ~ var.display_unit ~ '"'] %}{% endif -%}
+{%- for key in ["min", "max", "start", "nominal"] -%}
+{%- if var[key] is not none -%}
+{%- if index is none -%}
+{%- set ns.parts = ns.parts + [mod(var, key, render_expr(var[key], cfg), var[key])] -%}
+{%- else -%}
+{%- set ns.parts = ns.parts + [key ~ " = " ~ render_expr(array_element(var[key], index, flat.variables), cfg)] -%}
+{%- endif -%}
+{%- endif -%}
+{%- endfor -%}
+{%- if var.fixed is not none -%}
+{%- if index is none and var.fixed | length == 1 -%}
+{%- set ns.parts = ns.parts + [mod(var, "fixed", fixed_value(var))] -%}
+{%- else -%}
+{%- set ns.parts = ns.parts + ["fixed = " ~ fixed_value(var, index)] -%}
+{%- endif -%}
+{%- endif -%}
+{%- if var.state_select and var.state_select != "Default" -%}
+{%- set ns.parts = ns.parts + [mod(var, "stateSelect", "StateSelect." ~ (var.state_select | lower)) if index is none else "stateSelect = StateSelect." ~ (var.state_select | lower)] -%}
+{%- endif -%}
+{%- if ns.parts %}({{ ns.parts | join(", ") }}){% endif -%}
+{%- endmacro -%}
+
+{#- The binding equation. A parameter or constant with a fixed start and no
+    binding takes the start as its value (MLS §4.4.4). -#}
+{%- macro binding(var, index=none) -%}
 {%- set is_pc = var.variability is mapping and (var.variability.Parameter is defined or var.variability.Constant is defined) -%}
-{%- if var.binding is not none %} = {{ render_expr(var.binding, cfg) }}{% elif is_pc and var.start is not none and (var.fixed is none or var.fixed) %} = {{ render_expr(var.start, cfg) }}{% endif -%}
-{%- endmacro %}
+{%- set value = var.binding if var.binding is not none else (var.start if is_pc and var.start is not none and (var.fixed is none or var.fixed[0]) else none) -%}
+{%- if value is not none -%}
+{{ " = " ~ render_expr(value if index is none else array_element(value, index, flat.variables), cfg) }}
+{%- endif -%}
+{%- endmacro -%}
 
-{%- macro var_type(flat, name) -%}
-{{ flat_type_names[name] | default(flat.variable_type_names[name] | default("Real")) }}
-{%- endmacro %}
+{%- macro description(text) -%}
+{%- if text %} "{{ text }}"{% endif -%}
+{%- endmacro -%}
 
-{%- macro render_assert_eq(a) -%}
-assert({{ render_expr(a.condition, cfg) }}, {{ render_expr(a.message, cfg) }}{% if a.level is not none %}, {{ render_expr(a.level, cfg) }}{% endif %})
-{%- endmacro %}
+{%- macro declaration(name, var) -%}
+{%- if scalarize and var.dims | length > 0 -%}
+{%- for index in scalar_indices(var.dims) %}
+    {{ prefix(name, var) }}{{ type_name(name) }} {{ quote_ident(name ~ "[" ~ index ~ "]") }}{{ attrs(var, index) }}{{ binding(var, index) }}{{ description(var.description) }};
+{%- endfor -%}
+{%- else %}
+    {{ prefix(name, var) }}{{ type_name(name) }} {{ quote_ident(name) }}{% if var.dims | length > 0 %}[{{ var.dims | join(", ") }}]{% endif %}{{ attrs(var) }}{{ binding(var) }}{{ description(var.description) }};
+{%- endif -%}
+{%- endmacro -%}
 
-{#- ── Determine class keyword from flat model class_type ─────────────────────#}
-{%- set class_kw = flat.class_type if flat.class_type is string and flat.class_type | lower != "none" and flat.class_type | lower != "" else "model" %}
-{%- set class_kw = class_kw | lower %}
-{%- if class_kw not in ["model", "block", "record", "connector", "function"] %}
-{%- set class_kw = "model" %}
-{%- endif %}
-// BaseModelica — {{ model_name }}{% if flat.model_description %} "{{ flat.model_description }}"{% endif %}
+{#- ── Functions ─────────────────────────────────────────────────────────────#}
+{%- macro function_param(prefix_kw, param, fcfg) -%}
+{%- set t = param.type_name if param.type_name in ["Real", "Integer", "Boolean", "String"] else quote_ident(param.type_name) -%}
+{{ prefix_kw }}{{ t }} {{ quote_ident(param.name) }}
+{%- if param.shape_expr | length > 0 %}[{% for d in param.shape_expr %}{{ ", " if not loop.first }}{{ render_expr(d, fcfg) }}{% endfor %}]
+{%- elif param.effective_type.dimensions | length > 0 %}[{{ param.effective_type.dimensions | map("string") | join(", ") }}]{% endif -%}
+{%- if param.default is not none %} = {{ render_expr(param.default, fcfg) }}{% endif -%}
+{{ description(param.description) }};
+{%- endmacro -%}
 
-{{ class_kw }} {{ model_name }}{% if flat.model_description %} "{{ flat.model_description }}"{% endif %}
-
-  // --- variable declarations ---
-{%- for name, var in flat.variables | items %}
-{%- if not var.is_protected %}
-  {{ var_prefix(flat, name, var) }}{{ var_type(flat, name) | trim }}{{ dims(var) }} {{ qname(name) }}{{ var_attrs(var) }}{{ binding(var) }}{{ var_desc(var) }};
-{%- endif %}
+{%- macro function_decl(name, func) -%}
+{%- set ns_f = namespace(names=[]) -%}
+{%- for p in func.inputs + func.outputs + func.locals %}{% set ns_f.names = ns_f.names + [p.name] %}{% endfor -%}
+{%- set fcfg = {
+  "power": "^", "and_op": "and", "or_op": "or", "not_op": "not ",
+  "true_val": "true", "false_val": "false", "array_start": "{", "array_end": "}",
+  "if_style": "modelica", "sanitize_dots": false, "base_modelica": true,
+  "quote_names": ns_f.names, "quote_functions": flat.functions,
+  "quote_types": ns_enum.names, "one_based_index": true, "modelica_builtins": true
+} -%}
+{{ "  " ~ ("impure " if not func.pure else "") }}function {{ quote_ident(name) }}
+{%- for p in func.inputs %}
+    {{ function_param("input ", p, fcfg) }}
 {%- endfor %}
-{%- set ns = namespace(has_protected=false) %}
-{%- for _n, var in flat.variables | items %}
-{%- if var.is_protected %}{%- set ns.has_protected = true %}{%- endif %}
+{%- for p in func.outputs %}
+    {{ function_param("output ", p, fcfg) }}
 {%- endfor %}
-{%- if ns.has_protected %}
-
-protected
-  // --- protected declarations ---
-{%- for name, var in flat.variables | items %}
-{%- if var.is_protected %}
-  {{ var_prefix(flat, name, var) }}{{ var_type(flat, name) | trim }}{{ dims(var) }} {{ qname(name) }}{{ var_attrs(var) }}{{ binding(var) }}{{ var_desc(var) }};
+{%- for p in func.locals %}
+    {{ function_param("", p, fcfg) }}
+{%- endfor %}
+{%- if func.external is not none %}
+{%- set ext = func.external %}
+  external "{{ ext.language }}" {% if ext.output_name %}{{ quote_ident(ext.output_name) }} = {% endif %}{{ ext.function_name or (name | split(".") | last) }}({% for a in ext.args %}{{ ", " if not loop.first }}{{ render_expr(a, fcfg) }}{% endfor %});
+{%- else %}
+  algorithm
+{{ render_statements(func.body, fcfg, "    ") }}
 {%- endif %}
-{%- endfor %}
-{%- endif %}
+  end {{ quote_ident(name) }};
+{%- endmacro -%}
 
-equation
-  // --- continuous equations ---
-{{- equation_rows(flat_equation_rows.regular) }}
-{%- for a in flat.assert_equations %}
-  {{ render_assert_eq(a) }};
+{#- ── Equations ─────────────────────────────────────────────────────────────#}
+{#- One equation partition: each unmaterialized `for` family as a loop, or,
+    when scalarizing, every family unrolled and every array equation split
+    into one scalar equation per element. -#}
+{%- macro equation_rows(rows) -%}
+{%- for row in rows %}
+{%- if scalarize %}
+{%- for eq in (unroll_family(row.loop, flat.variables) if "loop" in row else scalarize_equation(row.equation, flat.variables)) %}
+    {{ render_flat_equation(eq, cfg) }};
 {%- endfor %}
+{%- elif "loop" in row %}
+{%- for header in row.loop.headers %}
+    {{ "  " * loop.index0 }}{{ header }}
+{%- endfor %}
+{%- for eq in row.loop.equations %}
+    {{ "  " * (row.loop.headers | length) }}{{ render_flat_equation(eq, cfg) }};
+{%- endfor %}
+{%- for _ in row.loop.headers %}
+    {{ "  " * (row.loop.headers | length - loop.index) }}end for;
+{%- endfor %}
+{%- else %}
+    {{ render_flat_equation(row.equation, cfg) }};
+{%- endif %}
+{%- endfor -%}
+{%- endmacro -%}
+
+{%- macro assert_eq(a, indent) -%}
+{{ indent }}assert({{ render_expr(a.condition, cfg) }}, {{ render_expr(a.message, cfg) }}{% if a.level is not none %}, {{ render_expr(a.level, cfg) }}{% endif %});
+{%- endmacro -%}
+
+{%- macro var_ref(name, subscripts=[]) -%}
+{{ render_expr({"VarRef": {"name": name, "subscripts": subscripts}}, cfg) }}
+{%- endmacro -%}
+
+{#- One equation inside a `when` branch (MLS §8.3.5). -#}
+{%- macro when_equation(eq, indent) -%}
+{%- if "Assign" in eq %}
+{{ indent }}{{ var_ref(eq.Assign.target) }} = {{ render_expr(eq.Assign.value, cfg) }};
+{%- elif "AssignElement" in eq %}
+{{ indent }}{{ var_ref(eq.AssignElement.target.name, eq.AssignElement.subscripts) }} = {{ render_expr(eq.AssignElement.value, cfg) }};
+{%- elif "Reinit" in eq %}
+{{ indent }}reinit({{ var_ref(eq.Reinit.state) }}, {{ render_expr(eq.Reinit.value, cfg) }});
+{%- elif "Assert" in eq %}
+{{ assert_eq(eq.Assert, indent) }}
+{%- elif "Terminate" in eq %}
+{{ indent }}terminate({{ render_expr(eq.Terminate.message, cfg) }});
+{%- elif "Conditional" in eq %}
+{%- for branch in eq.Conditional.branches %}
+{{ indent }}{{ "if" if loop.first else "elseif" }} {{ render_expr(branch[0], cfg) }} then
+{%- for inner in branch[1] %}{{ when_equation(inner, indent ~ "  ") }}{% endfor %}
+{%- endfor %}
+{%- if eq.Conditional.else_branch is not none %}
+{{ indent }}else
+{%- for inner in eq.Conditional.else_branch %}{{ when_equation(inner, indent ~ "  ") }}{% endfor %}
+{%- endif %}
+{{ indent }}end if;
+{%- elif "FunctionCallOutputs" in eq %}
+{{ indent }}({% for out in eq.FunctionCallOutputs.outputs %}{{ ", " if not loop.first }}{{ var_ref(out) }}{% endfor %}) = {{ render_expr(eq.FunctionCallOutputs.function, cfg) }};
+{%- else %}
+{{ fail("unsupported-feature:base-modelica-when-equation:" ~ (eq | list | first)) }}
+{%- endif %}
+{%- endmacro -%}
+
+{%- macro when_chain(chain) -%}
+{%- for branch in [chain.first] + chain.else_when %}
+    {{ "when" if loop.first else "elsewhen" }} {{ render_expr(branch.condition, cfg) }} then
+{%- for eq in branch.equations %}{{ when_equation(eq, "      ") }}{% endfor %}
+{%- endfor %}
+    end when;
+{%- endmacro -%}
+
+{#- ── Package ───────────────────────────────────────────────────────────────#}
+{#- A model selected by a quoted path (`'M'.'M'`, re-reading Base Modelica)
+    arrives as `'M'_'M'`; its quotes are not part of the new name. -#}
+{%- set name = quote_ident(model_name | replace("'", "")) -%}
+//! base 0.1.0
+package {{ name }}
+{%- for _id, decl in flat.enumeration_declarations | items %}
+  type {{ quote_ident(decl.name) }} = enumeration({{ decl.literals | join(", ") }});
+{%- endfor %}
+{%- for fname, func in flat.functions | items if not is_builtin_alias(fname) %}
+{{ function_decl(fname, func) }}
+{%- endfor %}
+  model {{ name }}{{ description(flat.model_description) }}
+{%- for vname, var in flat.variables | items %}{{ declaration(vname, var) }}{% endfor %}
 {%- if flat.initial_equations | length > 0 or flat.initial_assert_equations | length > 0 %}
-
-initial equation
-  // --- initial equations ---
+  initial equation
 {{- equation_rows(flat_equation_rows.initial) }}
 {%- for a in flat.initial_assert_equations %}
-  {{ render_assert_eq(a) }};
+{{ assert_eq(a, "    ") }}
 {%- endfor %}
 {%- endif %}
-
-end {{ model_name }};
+{%- for alg in flat.initial_algorithms %}
+  initial algorithm
+{{ render_statements(alg.statements, cfg, "    ") }}
+{%- endfor %}
+  equation
+{{- equation_rows(flat_equation_rows.regular) }}
+{%- for a in flat.assert_equations %}
+{{ assert_eq(a, "    ") }}
+{%- endfor %}
+{%- for chain in flat.when_chains %}{{ when_chain(chain) }}{% endfor %}
+{%- for alg in flat.algorithms %}
+  algorithm
+{{ render_statements(alg.statements, cfg, "    ") }}
+{%- endfor %}
+  end {{ name }};
+end {{ name }};

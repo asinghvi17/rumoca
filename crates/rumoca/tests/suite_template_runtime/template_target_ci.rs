@@ -651,6 +651,7 @@ fn shared_template_names_are_globally_unique_and_target_owned() {
         vec![
             "algorithm-code-manifest.jinja <- galec/manifest.xml.jinja".to_string(),
             "algorithm-code-source.jinja <- galec/model.alg.jinja".to_string(),
+            "base-modelica.bmo.jinja <- base-modelica/base_modelica.mo.jinja".to_string(),
             "fmi-c-kernel.jinja <- fmi3/scalar_kernel.jinja".to_string(),
             "fmi-me-projection.jinja <- fmi3/me_projection.jinja".to_string(),
             "fmi-scalar-events.jinja <- fmi3/scalar_events.jinja".to_string(),

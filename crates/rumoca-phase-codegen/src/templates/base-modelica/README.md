@@ -2,33 +2,54 @@
 
 ## Use case
 
-Use this target to hand a flattened Rumoca model to a tool that consumes the
-emerging Base Modelica interchange form, or to inspect whether hierarchy and
-connections were eliminated without scalarizing arrays. It is an interchange
-and debugging artifact, not a simulation runtime.
+Use this target to hand a flattened Rumoca model to a tool that consumes Base
+Modelica ([MCP-0031](https://github.com/modelica/ModelicaSpecification/tree/MCP/0031/RationaleMCP/0031)),
+for example BaseModelica.jl and from there ModelingToolkit. It is an
+interchange artifact, not a simulation runtime.
 
 ## Contract
 
 - Input: checked Flat IR.
-- Output: one Modelica-family source file with declarations and flattened
-  equations kept in deterministic source order.
-- Arrays and structured equations remain expressed at the Flat boundary.
-- The current readiness is experimental; the target does not claim conformance
-  to a finalized Base Modelica standard revision.
+- Output: one `.bmo` document: the `//! base 0.1.0` version header, then
+  `package 'M'` holding the enumeration types (`type 'P.E' = enumeration(...)`)
+  and user functions the model uses, then `model 'M' ... end 'M';` and
+  `end 'M';`.
+- Every declared component, function and enumeration type is a quoted
+  identifier (`'R1.p.v'`, `'Pkg.f'(...)`, `'P.E'.literal`); `time` and loop
+  indices stay bare.
+- Declarations keep `parameter`/`constant`/`discrete`, top-level
+  `input`/`output`, `quantity`/`unit`/`displayUnit`/`min`/`max`/`start`/
+  `fixed`/`nominal`/`stateSelect`, bindings and descriptions. MCP-0031 has no
+  `each`, `final`, `protected` or `public`: a scalar attribute of an array is
+  written `fill(value, dims)`, and function locals are plain declarations.
+- Equations, initial equations, assertions, `when`/`elsewhen` chains (with
+  `reinit`, discrete assignments, `if` branches, `assert`, `terminate`),
+  algorithm and initial algorithm sections are all kept. User function
+  bodies are algorithm sections with `:=`; external functions keep their
+  `external` clause. Functions every call of which renders as a built-in
+  (`Modelica.Math.sin`) are not declared.
+- Arrays stay arrays (`Real 'x'[3]`, unmaterialized `for` families as `for`
+  loops). The `base-modelica-scalar` target renders the same document with
+  every array scalarized, for consumers without array support.
+- Negative literals are parenthesized (the grammar has no signed primary).
 
 ## Unsupported
 
-The output is not original source, does not preserve class hierarchy or
-annotations, and must not be presented as a formatter. A Flat construct that
-cannot be represented must fail rendering instead of being omitted.
+The output is not original source and does not preserve class hierarchy or
+annotations. Records as package-level types and clocked partitions are not
+emitted yet. A Flat construct that cannot be represented fails rendering
+instead of being omitted.
 
 ## Verification
 
-- `template_target_ci::builtin_template_targets_render_or_are_explicit_readiness_zero_manifests`
-  exercises the real manifest render path.
+- `suite_core::base_modelica_target` checks the package layout, quoting,
+  `when`/`reinit`, functions, arrays, enumerations, scalarization, and that
+  the output recompiles through Rumoca.
+- `cli_target_acceptance::base_modelica_renders_when_and_algorithms` drives
+  the CLI target path.
 - `template_target_ci::modelica_interchange_targets_round_trip_through_the_compiler`
-  reparses and recompiles the generated source.
-- The Modelica interchange runtime lane also checks OMC acceptance.
+  reparses and recompiles the generated source; the Modelica interchange
+  runtime lane also checks OMC acceptance.
 
 ## Example
 

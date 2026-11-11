@@ -1399,7 +1399,24 @@ fn write_ir_dump(
     Ok(())
 }
 
+/// The `flat-modelica` render has no `when` or `algorithm` form, so a model
+/// carrying either is printed without it; say so instead of dropping it
+/// silently. The JSON dump and `--target base-modelica` keep both.
+fn warn_flat_modelica_omissions(flat: &FlatModel) {
+    let when_chains = flat.when_chains.len();
+    let algorithms = flat.algorithms.len() + flat.initial_algorithms.len();
+    if when_chains == 0 && algorithms == 0 {
+        return;
+    }
+    eprintln!(
+        "[rumoca] warning: `--emit flat-mo` omits {when_chains} when-equation chain(s) \
+         (including any reinit) and {algorithms} algorithm section(s); the printed model \
+         has different dynamics. Use `--emit flat-json` or `--target base-modelica` to keep them."
+    );
+}
+
 fn render_early_ir_as_modelica_flat(flat: &FlatModel, model: &str) -> Result<String> {
+    warn_flat_modelica_omissions(flat);
     let template = rumoca_compile::codegen::templates::builtin_template_source(
         "flat-modelica",
         "flat_modelica.mo.jinja",
@@ -1420,7 +1437,10 @@ fn render_ir_as_modelica(
         CompilePhase::Ast => {
             bail!("the AST has no lossless Modelica export; use `--emit ast-json`")
         }
-        CompilePhase::Flat => ("flat-modelica", "flat_modelica.mo.jinja"),
+        CompilePhase::Flat => {
+            warn_flat_modelica_omissions(&result.flat);
+            ("flat-modelica", "flat_modelica.mo.jinja")
+        }
         CompilePhase::Dae => ("dae-modelica", "dae_modelica.mo.jinja"),
         CompilePhase::Solve => {
             bail!("the solve IR has no Modelica form; use `--phase solve --json`")

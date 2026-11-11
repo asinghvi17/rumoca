@@ -1,0 +1,11 @@
+version = 1
+ir = "flat"
+name = "base-modelica-scalar"
+description = "Base Modelica (MCP-0031) with every array scalarized, from flat IR"
+readiness_level = 0
+execution_mode = "source-transform"
+deployment_class = "modelica"
+
+[[files]]
+path = "{{ model_name }}.bmo"
+template = "base_modelica_scalar.mo.jinja"

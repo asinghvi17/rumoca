@@ -23,7 +23,8 @@ Built-in targets include:
 | `cuda-ode` | solve | compiled | Batched CUDA explicit-ODE derivative kernel |
 | `wgsl-ode` | solve | JIT | Experimental WebGPU explicit-ODE kernels for browser execution |
 | `mlir` | solve | source | Inspectible MLIR solve-kernel source with affine tensor loops |
-| `flat-modelica` / `base-modelica` | flat | source-transform | Flattened Modelica-family interchange artifacts |
+| `flat-modelica` | flat | source-transform | Flattened Modelica (OMC comparison; no `when`/algorithm) |
+| `base-modelica` / `base-modelica-scalar` | flat | source-transform | MCP-0031 Base Modelica (`//! base 0.1.0`); the `-scalar` variant declares every array element as a scalar |
 | `dae-modelica` | dae | source-transform | Modelica representation of the checked DAE |
 | `fmi2` / `fmi3` | fmi | standards container | Source-code Model Exchange and Co-Simulation FMUs |
 | `fmi-ls-wasm` | fmi | compiled component | Experimental FMI-LS WebAssembly component crate |

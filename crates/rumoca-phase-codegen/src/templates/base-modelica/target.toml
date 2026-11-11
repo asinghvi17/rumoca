@@ -1,19 +1,17 @@
 version = 1
 ir = "flat"
 name = "base-modelica"
-description = "Base Modelica interchange output from flat IR"
+description = "Base Modelica (MCP-0031) interchange output from flat IR"
 readiness_level = 0
 execution_mode = "source-transform"
 deployment_class = "modelica"
 
-[capabilities]
-# The template renders regular/initial equations and assertions only. It does
-# not render `when` chains or algorithm sections, which would otherwise be
-# dropped silently (the emitted model still compiles, with different
-# dynamics). Declaring them unsupported turns that into a refusal.
-events = false
-algorithms = false
+# The template renders `when` chains (with `reinit`, discrete assignments,
+# `if` branches, `assert`/`terminate`), algorithm and initial algorithm
+# sections, and the user functions the model calls, so events and algorithms
+# keep their default (supported).
 
 [[files]]
-path = "{{ model_name }}_base.mo"
+path = "{{ model_name }}.bmo"
 template = "base_modelica.mo.jinja"
+shared_as = "base-modelica.bmo.jinja"

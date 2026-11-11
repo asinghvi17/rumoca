@@ -400,6 +400,40 @@ fn flat_modelica_prints_non_materialized_structured_families_as_loops() {
     );
 }
 
+const WHEN_FLAT_FIXTURE: &str = "\
+model WhenFlatFixture
+  Real h(start = 1, fixed = true);
+  Real v(start = 0, fixed = true);
+equation
+  der(h) = v;
+  der(v) = -9.81;
+  when h < 0 then
+    reinit(v, -0.8*pre(v));
+  end when;
+end WhenFlatFixture;
+";
+
+/// The Flat Modelica export has no `when` form. It still prints the model (it
+/// is a debugging dump), but says on stderr that the `when` chain and its
+/// `reinit` were omitted instead of dropping them silently; a model without
+/// either prints no warning.
+#[test]
+fn flat_modelica_export_warns_when_it_omits_when_equations() {
+    let (_dir, file) = named_fixture_file("WhenFlatFixture", WHEN_FLAT_FIXTURE);
+    let output = compile_emit(&file, "flat-mo");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "flat-mo still prints:\n{stderr}");
+    assert!(
+        stderr.contains("`--emit flat-mo` omits 1 when-equation chain(s)"),
+        "the omission is reported:\n{stderr}"
+    );
+
+    let (_dir, file) = named_fixture_file("ReloadableFlatFixture", RELOADABLE_FLAT_FIXTURE);
+    let output = compile_emit(&file, "flat-mo");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("omits"), "nothing omitted:\n{stderr}");
+}
+
 const RELOADABLE_FLAT_FIXTURE: &str = "\
 package Types
   type Mode = enumeration(Off, On);

@@ -58,8 +58,8 @@ fn rows(equations: &[flat::Equation], families: &[flat::StructuredEquationFamily
     rows
 }
 
-/// One `for i in lower:step:upper loop` header per binder (outermost first)
-/// and the template body as residual equations.
+/// One `for i in lower:step:upper loop` header per binder (outermost first),
+/// the binder ranges, and the template body as residual equations.
 fn loop_value(family: &flat::StructuredEquationFamily) -> Value {
     let headers = family
         .domain
@@ -79,5 +79,19 @@ fn loop_value(family: &flat::StructuredEquationFamily) -> Value {
         .flat_map(|template| template.body.iter())
         .map(|residual| flat::Equation::new(residual.clone(), family.span, family.origin.clone()))
         .collect::<Vec<_>>();
-    json!({ "headers": headers, "equations": equations })
+    // The binder ranges themselves, for a template that unrolls the loop.
+    let binders = family
+        .domain
+        .binders
+        .iter()
+        .map(|binder| {
+            json!({
+                "name": binder.display_name,
+                "lower": binder.lower,
+                "upper": binder.upper,
+                "step": binder.step,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({ "headers": headers, "binders": binders, "equations": equations })
 }

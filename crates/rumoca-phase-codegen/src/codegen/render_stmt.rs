@@ -118,6 +118,9 @@ fn is_sub_op(binary: &Value) -> bool {
 
 /// Render a list of statements to a string.
 pub(crate) fn render_statements(stmts: &Value, cfg: &ExprConfig, indent: &str) -> RenderResult {
+    if cfg.base_modelica {
+        return super::base_modelica::render_statements(stmts, cfg, indent);
+    }
     let len = stmts
         .len()
         .ok_or_else(|| render_err("statement list is not a sequence"))?;
@@ -141,6 +144,9 @@ pub(crate) fn render_statements(stmts: &Value, cfg: &ExprConfig, indent: &str) -
 
 /// Render a single statement to a string.
 pub(crate) fn render_statement(stmt: &Value, cfg: &ExprConfig, indent: &str) -> RenderResult {
+    if cfg.base_modelica {
+        return super::base_modelica::render_statement(stmt, cfg, indent);
+    }
     // Unit variants serialize as strings (e.g., "Empty")
     if let Some(s) = stmt.as_str() {
         return match s {

@@ -1,0 +1,5 @@
+{#- `base-modelica` with `scalarize` set: each array element is declared as
+    its own scalar (`'x[2]'`) and the materialized scalar equation rows are
+    printed instead of `for` loops. -#}
+{%- set scalarize = true -%}
+{% include "base-modelica.bmo.jinja" -%}

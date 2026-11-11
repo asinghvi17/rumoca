@@ -69,15 +69,15 @@ pub(crate) mod views;
 
 pub use codegen::{
     AlgorithmCodeTemplateRenderer, CodegenInput, NativeFmiTemplateRenderer,
-    SolveBlockTemplateRenderer, SolveTemplateRenderer, dae_template_json,
+    SolveBlockTemplateRenderer, SolveTemplateRenderer, TemplateExperiment, dae_template_json,
     explicit_algebraic_assignment_complete, explicit_algebraic_assignment_complete_with_calls,
     explicit_initialization_renderable_with_calls, me_refresh_admissible,
     render_algorithm_code_template_with_artifact, render_ast_template_with_name,
     render_checked_algorithm_block_template_with_artifact,
     render_checked_algorithm_block_template_with_solve,
-    render_checked_algorithm_block_template_with_sources, render_flat_template_with_name,
-    render_solve_template_with_name, render_template, render_template_for_input,
-    render_template_with_name, render_template_with_name_for_input,
+    render_checked_algorithm_block_template_with_sources, render_flat_template_with_experiment,
+    render_flat_template_with_name, render_solve_template_with_name, render_template,
+    render_template_for_input, render_template_with_name, render_template_with_name_for_input,
 };
 pub use errors::CodegenError;
 

@@ -294,5 +294,10 @@ package {{ name }}
   algorithm
 {{ render_statements(alg.statements, cfg, "    ") }}
 {%- endfor %}
+{#- The model's class annotation may carry `experiment` (MCP-0031
+    annotations.md); only the entries the source set are written. #}
+{%- if experiment is defined and experiment %}
+  annotation(experiment({% for key, value in experiment | items %}{{ ", " if not loop.first }}{{ key }} = {{ value }}{% endfor %}));
+{%- endif %}
   end {{ name }};
 end {{ name }};

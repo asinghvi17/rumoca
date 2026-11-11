@@ -403,3 +403,40 @@ end P;";
     let out = render_ok(RC_CIRCUIT, "RC.Circuit", "base-modelica");
     assert_contains_all(&out, &["    parameter Real 'R1.R' = 100;"]);
 }
+
+/// MCP-0031 annotations.md: the `experiment` class annotation of the model
+/// carries its default StartTime, StopTime, Tolerance and Interval, in that
+/// order and only the ones the source sets.
+#[test]
+fn the_experiment_annotation_closes_the_model() {
+    let source = "model Exp
+  Real x(start = 1, fixed = true);
+equation
+  der(x) = -x;
+  annotation(experiment(StopTime = 5, Interval = 0.01, StartTime = -1, Tolerance = 1e-8));
+end Exp;";
+    for target in ["base-modelica", "base-modelica-scalar"] {
+        let out = render_ok(source, "Exp", target);
+        assert!(
+            out.ends_with(
+                "    der('x') = (-'x');\n  annotation(experiment(StartTime = -1.0, \
+                 StopTime = 5.0, Tolerance = 0.00000001, Interval = 0.01));\n  \
+                 end 'Exp';\nend 'Exp';\n"
+            ),
+            "{target}:\n{out}"
+        );
+    }
+    let partial = "model Exp
+  Real x(start = 1, fixed = true);
+equation
+  der(x) = -x;
+  annotation(experiment(StopTime = 2));
+end Exp;";
+    let out = render_ok(partial, "Exp", "base-modelica");
+    assert_contains_all(
+        &out,
+        &["  annotation(experiment(StopTime = 2.0));\n  end 'Exp';"],
+    );
+    let out = render_ok(SPRING_MASS_DAMPER, "SpringMassDamper", "base-modelica");
+    assert!(!out.contains("annotation"), "{out}");
+}

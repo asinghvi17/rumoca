@@ -41,8 +41,8 @@ use std::sync::Arc;
 
 use rumoca_compile::analysis as dae_analysis;
 use rumoca_compile::codegen::{
-    CodegenError, SolveTemplateRenderer, render_ast_template_with_name, render_dae_template,
-    render_dae_template_with_name, render_flat_template_with_name,
+    CodegenError, SolveTemplateRenderer, TemplateExperiment, render_ast_template_with_name,
+    render_dae_template, render_dae_template_with_name, render_flat_template_with_experiment,
 };
 use rumoca_compile::compile::{
     Dae, DaeCompilationResult as CompileDaeCompilationResult, FlatModel, SemanticDiagnosticsMode,
@@ -73,6 +73,9 @@ pub struct CompilationResult {
     pub flat: FlatModel,
     /// The resolved tree (intermediate, before instantiation and typechecking).
     pub resolved: ResolvedTree,
+    /// The root class's `annotation(experiment(...))`, exposed to Flat
+    /// templates as `experiment`.
+    pub experiment: TemplateExperiment,
     /// Cached solve-template renderer (scalarized DAE + lowered solve
     /// problem, as typed template values). Building it dominates target
     /// generation on large models and a multi-file target renders several
@@ -172,6 +175,7 @@ impl CompilationResult {
             balance_detail,
             flat,
             resolved,
+            experiment: TemplateExperiment::default(),
             solve_template_renderer: std::sync::OnceLock::new(),
             solve_template_renderer_without_dae: std::sync::OnceLock::new(),
         }
@@ -230,8 +234,13 @@ impl CompilationResult {
                     .render_with_name(template, model_name)
                     .map_err(CompilerError::TemplateError)
             }
-            TemplateIr::Flat => render_flat_template_with_name(&self.flat, template, model_name)
-                .map_err(CompilerError::TemplateError),
+            TemplateIr::Flat => render_flat_template_with_experiment(
+                &self.flat,
+                template,
+                model_name,
+                &self.experiment,
+            )
+            .map_err(CompilerError::TemplateError),
             TemplateIr::Ast => {
                 render_ast_template_with_name(self.resolved.inner(), template, model_name)
                     .map_err(CompilerError::TemplateError)
@@ -584,12 +593,16 @@ impl Compiler {
             eprintln!("[rumoca]   Balance: {}", result.balance_detail.balance());
         }
 
-        Ok(CompilationResult::new(
-            result.dae,
-            result.balance_detail,
-            result.flat,
-            resolved,
-        ))
+        let experiment = TemplateExperiment {
+            start_time: result.experiment_start_time,
+            stop_time: result.experiment_stop_time,
+            tolerance: result.experiment_tolerance,
+            interval: result.experiment_interval,
+        };
+        let mut compiled =
+            CompilationResult::new(result.dae, result.balance_detail, result.flat, resolved);
+        compiled.experiment = experiment;
+        Ok(compiled)
     }
 
     /// Parse Modelica source code into its syntax tree (SPEC_0007 Stage 1).

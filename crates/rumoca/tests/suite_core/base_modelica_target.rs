@@ -60,7 +60,7 @@ fn wraps_the_model_in_a_versioned_package_of_quoted_names() {
     assert_contains_all(
         &out,
         &[
-            "    parameter Real 'm'(unit = \"kg\", start = 1.0) = 1.0 \"Mass\";",
+            "    parameter Real 'm'(unit = \"kg\") = 1.0 \"Mass\";",
             // MCP-0031 has no signed primary: a negative literal is parenthesized.
             "    Real 'x'(unit = \"m\", start = (-0.5), fixed = true) \"Position\";",
             "  equation\n    der('x') = 'v';",
@@ -254,7 +254,7 @@ fn arrays_stay_arrays_with_fill_for_scalar_attributes() {
     assert_contains_all(
         &out,
         &[
-            "    parameter Real 'tau'[3](start = {1, 2, 3}) = {1, 2, 3};",
+            "    parameter Real 'tau'[3] = {1, 2, 3};",
             "    Real 'x'[3](start = fill(0, 3), fixed = fill(true, 3));",
             "der('x'[1]) = ((1 - 'x'[1]) / 'tau'[1]);",
             "der('z') = (-('a' .* 'z'));",
@@ -268,7 +268,7 @@ fn scalar_target_declares_and_equates_every_element() {
     assert_contains_all(
         &out,
         &[
-            "    parameter Real 'tau[2]'(start = 2) = 2;",
+            "    parameter Real 'tau[2]' = 2;",
             "    Real 'x[3]'(start = 0, fixed = true);",
             "der('x[1]') = ((1 - 'x[1]') / 'tau[1]');",
             "der('x[3]') = (('x[2]' - 'x[3]') / 'tau[3]');",
@@ -365,4 +365,41 @@ fn output_recompiles_through_the_compiler() {
                 .unwrap_or_else(|error| panic!("{target}/{model} recompiles: {error:#}\n{out}"));
         }
     }
+}
+
+/// A parameter or constant's value is its binding (MLS §8.6): no `start`
+/// beside it, in particular not the declared type's default `start = 0.0`
+/// that a parameter bound by a component modifier (`R1(R = 100)`) carries.
+/// A `fixed = false` parameter keeps its start, its iteration guess.
+#[test]
+fn a_bound_parameter_carries_only_its_binding() {
+    let source = "package P
+  model Inner
+    parameter Real R = 1000.0 \"Resistance\";
+    parameter Real k(start = 2.0) = 3.0;
+    parameter Real g(fixed = false, start = 0.5);
+    Real x(start = 1.0, fixed = true);
+  initial equation
+    g = 2 * k;
+  equation
+    der(x) = -x / R * k;
+  end Inner;
+  model Top
+    Inner r1(R = 7.0);
+  end Top;
+end P;";
+    for target in ["base-modelica", "base-modelica-scalar"] {
+        let out = render_ok(source, "P.Top", target);
+        assert_contains_all(
+            &out,
+            &[
+                "    parameter Real 'r1.R' = 7.0 \"Resistance\";",
+                "    parameter Real 'r1.k' = 3.0;",
+                "    parameter Real 'r1.g'(start = 0.5, fixed = false);",
+                "    Real 'r1.x'(start = 1.0, fixed = true);",
+            ],
+        );
+    }
+    let out = render_ok(RC_CIRCUIT, "RC.Circuit", "base-modelica");
+    assert_contains_all(&out, &["    parameter Real 'R1.R' = 100;"]);
 }

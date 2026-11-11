@@ -86,15 +86,25 @@
 {%- for candidate in scalar_indices(var.dims) %}{% if candidate == index %}{{ loop.index0 }}{% endif %}{% endfor -%}
 {%- endmacro -%}
 
+{#- Whether the declaration's value is its binding (or, failing that, its
+    start): a parameter or constant that is not `fixed = false`. Its start is
+    then never used (MLS §8.6), so only the binding is written; a parameter
+    bound by a component modifier would otherwise show the declared type's
+    default `start = 0.0`. -#}
+{%- macro value_is_binding(var) -%}
+{%- if var.variability is mapping and (var.variability.Parameter is defined or var.variability.Constant is defined) and (var.fixed is none or var.fixed[0]) -%}yes{%- endif -%}
+{%- endmacro -%}
+
 {#- The attribute list of a declaration. `index` selects one element of an
     array variable (scalarized declaration). -#}
 {%- macro attrs(var, index=none) -%}
 {%- set ns = namespace(parts=[]) -%}
+{%- set skip_start = value_is_binding(var) == "yes" -%}
 {%- if var.quantity %}{% set ns.parts = ns.parts + ['quantity = "' ~ var.quantity ~ '"'] %}{% endif -%}
 {%- if var.unit %}{% set ns.parts = ns.parts + ['unit = "' ~ var.unit ~ '"'] %}{% endif -%}
 {%- if var.display_unit %}{% set ns.parts = ns.parts + ['displayUnit = "' ~ var.display_unit ~ '"'] %}{% endif -%}
 {%- for key in ["min", "max", "start", "nominal"] -%}
-{%- if var[key] is not none -%}
+{%- if var[key] is not none and not (key == "start" and skip_start) -%}
 {%- if index is none -%}
 {%- set ns.parts = ns.parts + [mod(var, key, render_expr(var[key], cfg), var[key])] -%}
 {%- else -%}
@@ -118,8 +128,7 @@
 {#- The binding equation. A parameter or constant with a fixed start and no
     binding takes the start as its value (MLS §4.4.4). -#}
 {%- macro binding(var, index=none) -%}
-{%- set is_pc = var.variability is mapping and (var.variability.Parameter is defined or var.variability.Constant is defined) -%}
-{%- set value = var.binding if var.binding is not none else (var.start if is_pc and var.start is not none and (var.fixed is none or var.fixed[0]) else none) -%}
+{%- set value = var.binding if var.binding is not none else (var.start if value_is_binding(var) == "yes" else none) -%}
 {%- if value is not none -%}
 {{ " = " ~ render_expr(value if index is none else array_element(value, index, flat.variables), cfg) }}
 {%- endif -%}

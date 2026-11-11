@@ -1,0 +1,35 @@
+//! base 0.1.0
+package 'UserFunction_Decay'
+  function 'saturate'
+    input Real 'u';
+    input Real 'lim';
+    output Real 'y';
+  algorithm
+    if ('u' > 'lim') then
+      'y' := 'lim';
+    elseif ('u' < (-'lim')) then
+      'y' := (-'lim');
+    else
+      'y' := 'u';
+    end if;
+  end 'saturate';
+  function 'cubicDrag'
+    input Real 'v';
+    input Real 'c1';
+    input Real 'c3' = 0.1;
+    output Real 'f';
+    Real 'v3';
+  algorithm
+    'v3' := (('v' * 'v') * 'v');
+    'f' := (('c1' * 'v') + ('c3' * 'v3'));
+  end 'cubicDrag';
+  model 'UserFunction_Decay'
+    parameter Real 'c'(start = 0.4) = 0.4;
+    parameter Real 'limit'(start = 2.0) = 2.0;
+    Real 'x'(start = 1.0, fixed = true);
+    Real 'y'(start = 0.0);
+  equation
+    der('x') = (-'cubicDrag'('x', 'c', 0.1));
+    'y' = 'saturate'((5 * 'x'), 'limit');
+  end 'UserFunction_Decay';
+end 'UserFunction_Decay';

@@ -1,0 +1,15 @@
+file	antlr	julia	mtk
+ArrayModel.bmo	PASS	FAIL: ParserCombinator.ParserException("Error in file: outputs/bmo/ArrayModel.bmo\nFailed to parse BaseModelica at line 5, column 52.\n\nError context:\n    model 'ArrayModel' \"Chain of first-order lags written with arrays\"\n      parameter Integer 'n'(start = 3) = 3;\n→     parameter Real 'tau'[3](star	FAIL: MethodError: no method matching fill(::Float64, ::Float64) | The function `fill` exists, but no method is defined for this combination of argument types. |  | Closest candidates are: |   fill(::Any, !Matched:
+BouncingBall.bmo	PASS	PASS	PASS ok (2 eqs)
+Modelica_Electrical_Analog_Examples_ChuaCircuit.bmo	PASS	PASS	PASS ok (3 eqs)
+Modelica_Mechanics_Translational_Examples_Oscillator.bmo	PASS	PASS	PASS ok (4 eqs)
+RCCircuit_Circuit.bmo	PASS	PASS	PASS ok (1 eqs)
+SpringMassDamper.bmo	PASS	PASS	PASS ok (2 eqs)
+UserFunction_Decay.bmo	PASS	FAIL: ParserCombinator.ParserException("Error in file: outputs/bmo/UserFunction_Decay.bmo\nFailed to parse BaseModelica at line 8, column 9.\n\nError context:\n      output Real 'y';\n    algorithm\n→     if ('u' > 'lim') then\n          ^~~~~~~~~~\n        'y' := 'lim';\n      elseif ('u' < (-'lim')) the	FAIL: KeyError: key :cubicDrag not found
+ArrayModel.bmo	PASS	PASS	PASS ok (3 eqs)
+BouncingBall.bmo	PASS	PASS	PASS ok (2 eqs)
+Modelica_Electrical_Analog_Examples_ChuaCircuit.bmo	PASS	PASS	PASS ok (3 eqs)
+Modelica_Mechanics_Translational_Examples_Oscillator.bmo	PASS	PASS	PASS ok (4 eqs)
+RCCircuit_Circuit.bmo	PASS	PASS	PASS ok (1 eqs)
+SpringMassDamper.bmo	PASS	PASS	PASS ok (2 eqs)
+UserFunction_Decay.bmo	PASS	FAIL: ParserCombinator.ParserException("Error in file: outputs/bmo/scalar/UserFunction_Decay.bmo\nFailed to parse BaseModelica at line 8, column 9.\n\nError context:\n      output Real 'y';\n    algorithm\n→     if ('u' > 'lim') then\n          ^~~~~~~~~~\n        'y' := 'lim';\n      elseif ('u' < (-'lim	FAIL: KeyError: key :cubicDrag not found

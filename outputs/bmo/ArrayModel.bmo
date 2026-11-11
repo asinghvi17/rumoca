@@ -1,0 +1,14 @@
+//! base 0.1.0
+package 'ArrayModel'
+  model 'ArrayModel' "Chain of first-order lags written with arrays"
+    parameter Integer 'n'(start = 3) = 3;
+    parameter Real 'tau'[3](start = {1.0, 2.0, 3.0}) = {1.0, 2.0, 3.0};
+    Real 'x'[3](start = fill(0.0, 3), fixed = fill(true, 3));
+    Real 'u'(start = 0.0) = 1.0;
+  equation
+    der('x'[1]) = (('u' - 'x'[1]) / 'tau'[1]);
+    for i in 2:3 loop
+      der('x'[i]) = (('x'[(i - 1)] - 'x'[i]) / 'tau'[i]);
+    end for;
+  end 'ArrayModel';
+end 'ArrayModel';

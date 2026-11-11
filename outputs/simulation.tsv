@@ -1,10 +1,12 @@
-file	stop	retcode	points	final values
-SpringMassDamper.bmo	5	Success	166	x(t)=-0.287313, v(t)=0.048997
-RCCircuit_Circuit.bmo	5	Success	47	var"C1.v"(t)=9.93262
+file	tspan	retcode	points	final values
+SpringMassDamper.bmo	(0.0, 5.0)	Success	501	x(t)=-0.287313, v(t)=0.048997
+RCCircuit_Circuit.bmo	(0.0, 5.0)	Success	47	var"C1.v"(t)=9.93262
+Modelica_Mechanics_Translational_Examples_Oscillator.bmo	(0.0, 1.0)	Success	1001	var"mass2.v"(t)=-0.0502208, var"mass2.s"(t)=-0.500857, var"mass1.v"(t)=-0.253123, var"mass1.s"(t)=-0.504337
+Modelica_Electrical_Analog_Examples_ChuaCircuit.bmo	(0.0, 100.0)	Success	101	var"L.i"(t)=3.21717, var"C2.v"(t)=0.62525, var"C1.v"(t)=4.50467
+Modelica_Mechanics_Rotational_Examples_First.bmo	(0.0, 1.0)	Success	1001	var"inertia3.w"(t)=-0.138192, var"inertia3.phi"(t)=0.162861, var"damper.phi_rel"(t)=-0.162328, var"damper.phi_relˍt"(t)=0.112241
+Modelica_Electrical_Analog_Examples_CauerLowPassAnalog.bmo	(0.0, 60.0)	Success	109	var"L2.i"(t)=0.500964, var"L1.i"(t)=0.499365, var"C5.v"(t)=0.499706, var"R2.i"(t)=0.499706
+scalar/ArrayModel.bmo	(0.0, 10.0)	Success	21	var"x[3]"(t)=0.866396, var"x[2]"(t)=0.986569, var"x[1]"(t)=0.999955
 BouncingBall.bmo	3	ERROR	0	ArgumentError: Symbol tLast(t) is not present in the system.
-Modelica_Mechanics_Translational_Examples_Oscillator.bmo	1	Success	792	var"mass2.v"(t)=-0.0502226, var"mass2.s"(t)=-0.500857, var"mass1.v"(t)=-0.253175, var"mass1.s"(t)=-0.504337
-Modelica_Electrical_Analog_Examples_ChuaCircuit.bmo	100	Success	30	var"L.i"(t)=3.21717, var"C2.v"(t)=0.62525, var"C1.v"(t)=4.50467
-ArrayModel.bmo	10	Success	68	var"x[3]"(t)=0.866396, var"x[2]"(t)=0.98657, var"x[1]"(t)=0.999955
-# probes (outputs/bmo/BouncingBall.bmo with lines removed, not committed as .bmo):
+# probes from the earlier run at 4c85084b (outputs/bmo/BouncingBall.bmo with lines removed, not committed as .bmo):
 BouncingBall minus tLast	3	ERROR	0	ArgumentError: Symbol bounces(t) is not present in the system.
 BouncingBall reinit only	3	Success	9	v(t)=-29.43, h(t)=-43.145  <- reinit ignored by BaseModelica.jl (free fall: v=-g*t)

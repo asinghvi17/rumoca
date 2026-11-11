@@ -19,9 +19,12 @@ for target in base-modelica base-modelica-scalar; do
   "$RUMOCA" compile $M/RCCircuit.mo -m RCCircuit.Circuit --target $target -o "$out" >/dev/null
   "$RUMOCA" compile $M/BouncingBall.mo --target $target -o "$out" >/dev/null
   "$RUMOCA" compile $M/UserFunction.mo -m UserFunction.Decay --target $target -o "$out" >/dev/null
+  "$RUMOCA" compile $M/RecordFunction.mo -m RecordFunction.Decay --target $target -o "$out" >/dev/null
   "$RUMOCA" compile $M/ArrayModel.mo --target $target -o "$out" >/dev/null 2>&1
   for model in Modelica.Mechanics.Translational.Examples.Oscillator \
-               Modelica.Electrical.Analog.Examples.ChuaCircuit; do
+               Modelica.Electrical.Analog.Examples.ChuaCircuit \
+               Modelica.Mechanics.Rotational.Examples.First \
+               Modelica.Electrical.Analog.Examples.CauerLowPassAnalog; do
     "$RUMOCA" compile "$MSL/Modelica 4.1.0/package.mo" -m $model \
       --source-root "$MSL/Complex.mo" \
       --source-root "$MSL/Modelica 4.1.0" \

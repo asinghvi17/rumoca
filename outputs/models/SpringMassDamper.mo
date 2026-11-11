@@ -7,4 +7,5 @@ model SpringMassDamper "Mass on a spring with viscous damping"
 equation
   der(x) = v;
   m * der(v) = -k * x - d * v;
+  annotation(experiment(StopTime = 5, Tolerance = 1e-8, Interval = 0.01));
 end SpringMassDamper;

@@ -1,15 +1,21 @@
 file	antlr	julia	mtk
-ArrayModel.bmo	PASS	FAIL: ParserCombinator.ParserException("Error in file: outputs/bmo/ArrayModel.bmo\nFailed to parse BaseModelica at line 5, column 52.\n\nError context:\n    model 'ArrayModel' \"Chain of first-order lags written with arrays\"\n      parameter Integer 'n'(start = 3) = 3;\n→     parameter Real 'tau'[3](star	FAIL: MethodError: no method matching fill(::Float64, ::Float64) | The function `fill` exists, but no method is defined for this combination of argument types. |  | Closest candidates are: |   fill(::Any, !Matched:
+ArrayModel.bmo	PASS	FAIL: ParserCombinator.ParserException("Error in file: outputs/bmo/ArrayModel.bmo\nFailed to parse BaseModelica at line 5, column 46.\n\nError context:\n    model 'ArrayModel' \"Chain of first-order lags written with arrays\"\n      parameter Integer 'n' = 3;\n→     parameter Real 'tau'[3] = {1.0, 2.0, 3.	FAIL: MethodError: no method matching fill(::Float64, ::Float64) | The function `fill` exists, but no method is defined for this combination of argument types. |  | Closest candidates are: |   fill(::Any, !Matched:
 BouncingBall.bmo	PASS	PASS	PASS ok (2 eqs)
+Modelica_Electrical_Analog_Examples_CauerLowPassAnalog.bmo	PASS	PASS	PASS ok (8 eqs)
 Modelica_Electrical_Analog_Examples_ChuaCircuit.bmo	PASS	PASS	PASS ok (3 eqs)
+Modelica_Mechanics_Rotational_Examples_First.bmo	PASS	PASS	PASS ok (5 eqs)
 Modelica_Mechanics_Translational_Examples_Oscillator.bmo	PASS	PASS	PASS ok (4 eqs)
 RCCircuit_Circuit.bmo	PASS	PASS	PASS ok (1 eqs)
+RecordFunction_Decay.bmo	PASS	TIMEOUT: parse_file_julia did not return within 300 s (ParserCombinator hang on a record-typed function local)	FAIL: KeyError: key :norm2 not found
 SpringMassDamper.bmo	PASS	PASS	PASS ok (2 eqs)
 UserFunction_Decay.bmo	PASS	FAIL: ParserCombinator.ParserException("Error in file: outputs/bmo/UserFunction_Decay.bmo\nFailed to parse BaseModelica at line 8, column 9.\n\nError context:\n      output Real 'y';\n    algorithm\n→     if ('u' > 'lim') then\n          ^~~~~~~~~~\n        'y' := 'lim';\n      elseif ('u' < (-'lim')) the	FAIL: KeyError: key :cubicDrag not found
-ArrayModel.bmo	PASS	PASS	PASS ok (3 eqs)
-BouncingBall.bmo	PASS	PASS	PASS ok (2 eqs)
-Modelica_Electrical_Analog_Examples_ChuaCircuit.bmo	PASS	PASS	PASS ok (3 eqs)
-Modelica_Mechanics_Translational_Examples_Oscillator.bmo	PASS	PASS	PASS ok (4 eqs)
-RCCircuit_Circuit.bmo	PASS	PASS	PASS ok (1 eqs)
-SpringMassDamper.bmo	PASS	PASS	PASS ok (2 eqs)
-UserFunction_Decay.bmo	PASS	FAIL: ParserCombinator.ParserException("Error in file: outputs/bmo/scalar/UserFunction_Decay.bmo\nFailed to parse BaseModelica at line 8, column 9.\n\nError context:\n      output Real 'y';\n    algorithm\n→     if ('u' > 'lim') then\n          ^~~~~~~~~~\n        'y' := 'lim';\n      elseif ('u' < (-'lim	FAIL: KeyError: key :cubicDrag not found
+scalar/ArrayModel.bmo	PASS	PASS	PASS ok (3 eqs)
+scalar/BouncingBall.bmo	PASS	PASS	PASS ok (2 eqs)
+scalar/Modelica_Electrical_Analog_Examples_CauerLowPassAnalog.bmo	PASS	PASS	PASS ok (8 eqs)
+scalar/Modelica_Electrical_Analog_Examples_ChuaCircuit.bmo	PASS	PASS	PASS ok (3 eqs)
+scalar/Modelica_Mechanics_Rotational_Examples_First.bmo	PASS	PASS	PASS ok (5 eqs)
+scalar/Modelica_Mechanics_Translational_Examples_Oscillator.bmo	PASS	PASS	PASS ok (4 eqs)
+scalar/RCCircuit_Circuit.bmo	PASS	PASS	PASS ok (1 eqs)
+scalar/RecordFunction_Decay.bmo	PASS	TIMEOUT: parse_file_julia did not return within 300 s (ParserCombinator hang on a record-typed function local)	FAIL: KeyError: key :norm2 not found
+scalar/SpringMassDamper.bmo	PASS	PASS	PASS ok (2 eqs)
+scalar/UserFunction_Decay.bmo	PASS	FAIL: ParserCombinator.ParserException("Error in file: outputs/bmo/scalar/UserFunction_Decay.bmo\nFailed to parse BaseModelica at line 8, column 9.\n\nError context:\n      output Real 'y';\n    algorithm\n→     if ('u' > 'lim') then\n          ^~~~~~~~~~\n        'y' := 'lim';\n      elseif ('u' < (-'lim	FAIL: KeyError: key :cubicDrag not found

@@ -24,8 +24,8 @@ package 'UserFunction_Decay'
     'f' := (('c1' * 'v') + ('c3' * 'v3'));
   end 'cubicDrag';
   model 'UserFunction_Decay'
-    parameter Real 'c'(start = 0.4) = 0.4;
-    parameter Real 'limit'(start = 2.0) = 2.0;
+    parameter Real 'c' = 0.4;
+    parameter Real 'limit' = 2.0;
     Real 'x'(start = 1.0, fixed = true);
     Real 'y'(start = 0.0);
   equation

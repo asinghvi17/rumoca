@@ -1,10 +1,10 @@
 //! base 0.1.0
 package 'ArrayModel'
   model 'ArrayModel' "Chain of first-order lags written with arrays"
-    parameter Integer 'n'(start = 3) = 3;
-    parameter Real 'tau[1]'(start = 1.0) = 1.0;
-    parameter Real 'tau[2]'(start = 2.0) = 2.0;
-    parameter Real 'tau[3]'(start = 3.0) = 3.0;
+    parameter Integer 'n' = 3;
+    parameter Real 'tau[1]' = 1.0;
+    parameter Real 'tau[2]' = 2.0;
+    parameter Real 'tau[3]' = 3.0;
     Real 'x[1]'(start = 0.0, fixed = true);
     Real 'x[2]'(start = 0.0, fixed = true);
     Real 'x[3]'(start = 0.0, fixed = true);

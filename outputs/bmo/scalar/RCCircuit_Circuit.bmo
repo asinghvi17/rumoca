@@ -7,21 +7,21 @@ package 'RCCircuit_Circuit'
     Real 'R1.n.i'(start = 0.0) "Current";
     Real 'R1.v'(start = 0.0) "Voltage drop";
     Real 'R1.i'(start = 0.0) "Current through";
-    parameter Real 'R1.R'(start = 0.0) = 100.0 "Resistance";
+    parameter Real 'R1.R' = 100.0 "Resistance";
     Real 'C1.p.v'(start = 0.0) "Potential";
     Real 'C1.p.i'(start = 0.0) "Current";
     Real 'C1.n.v'(start = 0.0) "Potential";
     Real 'C1.n.i'(start = 0.0) "Current";
     Real 'C1.v'(start = 0.0, fixed = true) "Voltage drop";
     Real 'C1.i'(start = 0.0) "Current through";
-    parameter Real 'C1.C'(start = 0.0) = 0.01 "Capacitance";
+    parameter Real 'C1.C' = 0.01 "Capacitance";
     Real 'V1.p.v'(start = 0.0) "Potential";
     Real 'V1.p.i'(start = 0.0) "Current";
     Real 'V1.n.v'(start = 0.0) "Potential";
     Real 'V1.n.i'(start = 0.0) "Current";
     Real 'V1.v'(start = 0.0) "Voltage drop";
     Real 'V1.i'(start = 0.0) "Current through";
-    parameter Real 'V1.V'(start = 0.0) = 10.0 "Source voltage";
+    parameter Real 'V1.V' = 10.0 "Source voltage";
     Real 'G.p.v'(start = 0.0) "Potential";
     Real 'G.p.i'(start = 0.0) "Current";
   equation
@@ -45,5 +45,6 @@ package 'RCCircuit_Circuit'
     'R1.n.v' = 'C1.p.v';
     'C1.n.v' = 'V1.n.v';
     'V1.n.v' = 'G.p.v';
+  annotation(experiment(StopTime = 5.0, Tolerance = 0.00000001));
   end 'RCCircuit_Circuit';
 end 'RCCircuit_Circuit';

@@ -52,5 +52,6 @@ package RCCircuit "RC circuit built from connectors, partial models and extends"
     connect(R1.n, C1.p);
     connect(C1.n, V1.n);
     connect(V1.n, G.p);
+    annotation(experiment(StopTime = 5, Tolerance = 1e-8));
   end Circuit;
 end RCCircuit;

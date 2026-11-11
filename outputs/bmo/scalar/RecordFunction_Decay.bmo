@@ -1,0 +1,32 @@
+//! base 0.1.0
+package 'RecordFunction_Decay'
+  record 'RecordFunction.Point'
+    Real 'x';
+    Real 'y';
+  end 'RecordFunction.Point';
+  function '-RecordFunction.Point' "Automatically generated constructor for 'RecordFunction.Point'"
+    input Real 'x';
+    input Real 'y';
+    output 'RecordFunction.Point' _result('x' = 'x', 'y' = 'y');
+  end '-RecordFunction.Point';
+  function 'RecordFunction.make'
+    input Real 'a';
+    output 'RecordFunction.Point' 'p';
+  algorithm
+    'p' := '-RecordFunction.Point'('a', (2 * 'a'));
+  end 'RecordFunction.make';
+  function 'norm2'
+    input Real 'a';
+    output Real 'n';
+    'RecordFunction.Point' 'p';
+  algorithm
+    'p' := 'RecordFunction.make'('a');
+    'n' := (('p'.'x' * 'p'.'x') + ('p'.'y' * 'p'.'y'));
+  end 'norm2';
+  model 'RecordFunction_Decay' "x decays at a rate set through record-valued helpers"
+    Real 'x'(start = 1.0, fixed = true);
+  equation
+    der('x') = (-('norm2'(0.5) * 'x'));
+  annotation(experiment(StopTime = 2.0));
+  end 'RecordFunction_Decay';
+end 'RecordFunction_Decay';

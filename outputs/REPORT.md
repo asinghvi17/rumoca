@@ -1,5 +1,8 @@
 # Modelica → rumoca → Base Modelica (MCP-0031) → BaseModelica.jl → ModelingToolkit
 
+> Follow-ups (experiment annotation, bound-parameter start, records, a
+> re-emitted and revalidated model set) are in `REPORT-followups.md`.
+
 Prototype report. Base: rumoca `main` @ `1b6cf9af` (v0.10.4). On 2026-11-11
 `git ls-remote` and the GitHub API both still show `refs/heads/main` at
 `1b6cf9af`, so there was nothing to rebase onto. The repository's

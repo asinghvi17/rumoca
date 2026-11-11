@@ -38,6 +38,10 @@ pub(crate) struct ExprConfig {
     /// identifiers, so a literal reads `'Pkg.E'.literal` (MCP-0031 has no
     /// class hierarchy to look the dotted path up in).
     pub(crate) quote_types: Option<Value>,
+    /// With `base_modelica`: record instances (`flat.record_instances`) the
+    /// model declares only as their flattened fields; a reference to the
+    /// whole record is refused instead of emitted undeclared.
+    pub(crate) flattened_records: Option<Value>,
     /// With `base_modelica`: an array element with constant subscripts renders
     /// as one scalar quoted identifier (`x[2]` -> `'x[2]'`), the naming of a
     /// scalarized declaration.
@@ -105,6 +109,7 @@ impl Default for ExprConfig {
             base_modelica: false,
             quote_functions: None,
             quote_types: None,
+            flattened_records: None,
             scalarize: false,
             one_based_index: false,
             modelica_builtins: false,
@@ -194,6 +199,7 @@ impl ExprConfig {
         }
         cfg.quote_functions = get_present_attr(v, "quote_functions");
         cfg.quote_types = get_present_attr(v, "quote_types");
+        cfg.flattened_records = get_present_attr(v, "flattened_records");
         if let Some(enabled) = get_bool_attr(v, "scalarize") {
             cfg.scalarize = enabled;
         }

@@ -32,6 +32,7 @@
   "quote_names": flat.variables,
   "quote_functions": flat.functions,
   "quote_types": ns_enum.names,
+  "flattened_records": flat.record_instances,
   "one_based_index": true,
   "modelica_builtins": true
 } %}
@@ -158,6 +159,18 @@
 {{ description(param.description) }};
 {%- endmacro -%}
 
+{#- A record constructor. MCP-0031 has no implicit constructors, so it is a
+    generated function `'-R'` returning `record 'R'` (differences.md, "Record
+    construction"); calls to `R(...)` render as `'-R'(...)`. -#}
+{%- macro constructor_decl(name, func, fcfg) -%}
+{{ "  " }}function {{ quote_ident("-" ~ name) }} "Automatically generated constructor for {{ quote_ident(name) }}"
+{%- for p in func.inputs %}
+    {{ function_param("input ", p, fcfg) }}
+{%- endfor %}
+    output {{ quote_ident(name) }} _result({% for p in func.inputs %}{{ ", " if not loop.first }}{{ quote_ident(p.name) }} = {{ quote_ident(p.name) }}{% endfor %});
+  end {{ quote_ident("-" ~ name) }};
+{%- endmacro -%}
+
 {%- macro function_decl(name, func) -%}
 {%- set ns_f = namespace(names=[]) -%}
 {%- for p in func.inputs + func.outputs + func.locals %}{% set ns_f.names = ns_f.names + [p.name] %}{% endfor -%}
@@ -168,6 +181,9 @@
   "quote_names": ns_f.names, "quote_functions": flat.functions,
   "quote_types": ns_enum.names, "one_based_index": true, "modelica_builtins": true
 } -%}
+{%- if func.is_constructor -%}
+{{ constructor_decl(name, func, fcfg) }}
+{%- else -%}
 {{ "  " ~ ("impure " if not func.pure else "") }}function {{ quote_ident(name) }}
 {%- for p in func.inputs %}
     {{ function_param("input ", p, fcfg) }}
@@ -185,6 +201,24 @@
   algorithm
 {{ render_statements(func.body, fcfg, "    ") }}
 {%- endif %}
+  end {{ quote_ident(name) }};
+{%- endif -%}
+{%- endmacro -%}
+
+{#- A record type the emitted functions use (as a component type or through
+    its constructor), declared as a package-level class with the
+    constructor's fields. Record components of the model itself stay
+    flattened to scalar fields, which MCP-0031 permits. -#}
+{%- macro record_decl(name) -%}
+{%- set ctor = flat.functions[name] | default(none) -%}
+{%- if ctor is none or not ctor.is_constructor -%}
+{{ fail("unsupported-feature:base-modelica-record-type:" ~ name ~ " has no constructor to take its fields from") }}
+{%- endif -%}
+{{ "  " }}record {{ quote_ident(name) }}
+{%- for p in ctor.inputs %}
+    {{ p.type_name if p.type_name in ["Real", "Integer", "Boolean", "String"] else quote_ident(p.type_name) }} {{ quote_ident(p.name) }}
+{%- if p.effective_type.dimensions | length > 0 %}[{{ p.effective_type.dimensions | map("string") | join(", ") }}]{% endif %}{{ description(p.description) }};
+{%- endfor %}
   end {{ quote_ident(name) }};
 {%- endmacro -%}
 
@@ -267,6 +301,14 @@
 package {{ name }}
 {%- for _id, decl in flat.enumeration_declarations | items %}
   type {{ quote_ident(decl.name) }} = enumeration({{ decl.literals | join(", ") }});
+{%- endfor %}
+{%- set ns_rec = namespace(names=[]) %}
+{%- for fname, func in flat.functions | items if not is_builtin_alias(fname) %}
+{%- if func.is_constructor and fname not in ns_rec.names %}{% set ns_rec.names = ns_rec.names + [fname] %}{% endif %}
+{%- for p in func.inputs + func.outputs + func.locals if p.type_class == "Record" and p.type_name not in ns_rec.names %}{% set ns_rec.names = ns_rec.names + [p.type_name] %}{% endfor %}
+{%- endfor %}
+{%- for rname in ns_rec.names %}
+{{ record_decl(rname) }}
 {%- endfor %}
 {%- for fname, func in flat.functions | items if not is_builtin_alias(fname) %}
 {{ function_decl(fname, func) }}

@@ -571,7 +571,7 @@ pub(super) fn emitted_variable_symbol(reference: &str, cfg: &ExprConfig) -> Rend
         {
             return Ok(format!("{}.{literal}", quote_identifier(type_name)));
         }
-        return Ok(symbol);
+        return base_modelica_record_path(reference, symbol, cfg);
     }
     let declared = cfg.quote_names.as_ref().is_none_or(|names| {
         names
@@ -587,6 +587,39 @@ pub(super) fn emitted_variable_symbol(reference: &str, cfg: &ExprConfig) -> Rend
         && (generated || (declared && symbol.contains('.')))
     {
         return Ok(format!("'{symbol}'"));
+    }
+    Ok(symbol)
+}
+
+/// An undeclared Base Modelica reference that is not an enumeration literal.
+/// A member of a record-typed function component reads `'p'.'x'` (MCP-0031:
+/// a record member is reached through its instance). A record instance the
+/// model flattened to its fields has no Base Modelica spelling and is
+/// refused; anything else (`time`, loop indices) stays bare.
+fn base_modelica_record_path(reference: &str, symbol: String, cfg: &ExprConfig) -> RenderResult {
+    if let Some((head, _)) = rumoca_core::split_first_top_level(&symbol)
+        && !symbol.contains('[')
+        && cfg
+            .quote_names
+            .as_ref()
+            .is_some_and(|names| names_contain(names, head))
+    {
+        let members: Vec<String> = rumoca_core::split_path_with_indices(&symbol)
+            .into_iter()
+            .map(quote_identifier)
+            .collect();
+        return Ok(members.join("."));
+    }
+    if cfg
+        .flattened_records
+        .as_ref()
+        .is_some_and(|records| names_contain(records, reference))
+    {
+        return Err(render_err(format!(
+            "unsupported-feature:base-modelica-record-value: `{reference}` is a record the \
+             model flattens to its fields, so a record-valued equation on it has no Base \
+             Modelica form"
+        )));
     }
     Ok(symbol)
 }

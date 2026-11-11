@@ -440,3 +440,91 @@ end Exp;";
     let out = render_ok(SPRING_MASS_DAMPER, "SpringMassDamper", "base-modelica");
     assert!(!out.contains("annotation"), "{out}");
 }
+
+const RECORD_FUNCTIONS: &str = r#"
+package Rec
+  record Point
+    Real x;
+    Real y;
+  end Point;
+  function make
+    input Real a;
+    output Point p;
+  algorithm
+    p := Point(a, 2 * a);
+  end make;
+  function sum
+    input Real a;
+    output Real n;
+  protected
+    Point p;
+  algorithm
+    p := make(a);
+    n := p.x + p.y;
+  end sum;
+  model M
+    Point q(x = 1, y = 2);
+    Real s;
+  equation
+    s = sum(time) + q.x;
+  end M;
+end Rec;
+"#;
+
+/// MCP-0031 declares a record type a function uses as a package-level
+/// `record`, has no implicit record constructors (so `Point(...)` calls a
+/// generated `'-Rec.Point'`), and reaches members through the instance
+/// (`'p'.'x'`). A record component of the model itself stays flattened to its
+/// fields, which the spec permits.
+#[test]
+fn records_used_by_functions_are_package_classes() {
+    let out = render_ok(RECORD_FUNCTIONS, "Rec.M", "base-modelica");
+    assert_contains_all(
+        &out,
+        &[
+            "  record 'Rec.Point'\n    Real 'x';\n    Real 'y';\n  end 'Rec.Point';\n",
+            "  function '-Rec.Point' \"Automatically generated constructor for 'Rec.Point'\"\n    \
+             input Real 'x';\n    input Real 'y';\n    \
+             output 'Rec.Point' _result('x' = 'x', 'y' = 'y');\n  end '-Rec.Point';\n",
+            "    output 'Rec.Point' 'p';",
+            "    'p' := '-Rec.Point'('a', (2 * 'a'));",
+            "    'Rec.Point' 'p';",
+            "    'n' := ('p'.'x' + 'p'.'y');",
+            "    Real 'q.x'(start = 0.0) = 1;",
+        ],
+    );
+    let record_at = out.find("  record 'Rec.Point'").expect("record");
+    assert!(
+        out.find("  function").is_some_and(|at| record_at < at),
+        "{out}"
+    );
+    assert!(!out.contains("function 'Rec.Point'"), "{out}");
+}
+
+/// A record-valued equation on a model record (flattened to its fields) has
+/// no Base Modelica spelling; it is refused rather than emitted undeclared.
+#[test]
+fn a_record_valued_model_equation_is_refused() {
+    let source = "package Rec
+  record Point
+    Real x;
+    Real y;
+  end Point;
+  function make
+    input Real a;
+    output Point p;
+  algorithm
+    p := Point(a, 2 * a);
+  end make;
+  model M
+    Point w;
+  equation
+    w = make(time);
+  end M;
+end Rec;";
+    let error = render(source, "Rec.M", "base-modelica").expect_err("record equation");
+    assert!(
+        error.contains("unsupported-feature:base-modelica-record-value") && error.contains("`w`"),
+        "{error}"
+    );
+}

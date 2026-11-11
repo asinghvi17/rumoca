@@ -788,7 +788,12 @@ fn render_function_call(func_call: &Value, cfg: &ExprConfig) -> RenderResult {
     }
 
     let mut name = super::emitted_symbol(&raw_name, cfg)?;
-    if cfg.base_modelica
+    if cfg.base_modelica && get_field(func_call, "is_constructor").is_ok_and(|flag| flag.is_true())
+    {
+        // MCP-0031 has no implicit record constructors; the package declares
+        // one as `'-R'` beside `record 'R'`.
+        name = super::quote_identifier(&format!("-{raw_name}"));
+    } else if cfg.base_modelica
         && cfg
             .quote_functions
             .as_ref()

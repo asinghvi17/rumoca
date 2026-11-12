@@ -87,7 +87,9 @@ use attributes::*;
 use component_loop::{
     ComponentImports, component_flow_stream, component_type_id, instantiate_effective_components,
 };
-use conditional_components::{ConditionScope, mark_disabled_component_if_needed};
+use conditional_components::{
+    ConditionScope, component_condition_selections, mark_disabled_component_if_needed,
+};
 use dims::{
     qualify_shape_subscripts_imports, resolve_component_dimensions, resolve_type_alias_dimensions,
 };
@@ -1006,7 +1008,7 @@ fn instantiate_class(
         // component occurrences of this class instance were just materialized,
         // so their selected types now prove those members exactly.
         let selected_component_types = SelectedComponentTypes::of_scope(overlay, instance_id);
-        let sections = class_instance_sections(
+        let mut sections = class_instance_sections(
             tree,
             ctx,
             &template,
@@ -1014,6 +1016,8 @@ fn instantiate_class(
             &type_overrides,
             &selected_component_types,
         )?;
+        let conditions = component_condition_selections(effective_components, &qualified_name);
+        sections.parameter_branch_selections.extend(conditions);
 
         let class_data = ast::ClassInstanceData {
             instance_id,

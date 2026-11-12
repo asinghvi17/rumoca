@@ -785,15 +785,29 @@ pub struct InstanceEquation {
 }
 
 /// An if-equation whose branch instantiation selected by evaluating
-/// component references in its conditions (SPEC_0040 DAE-C22).
+/// component references in its conditions, or a conditional component whose
+/// condition reads them (SPEC_0040 DAE-C22).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceBranchSelection {
     /// The conditions evaluated, up to and including the one that held.
     pub conditions: Vec<Expression>,
     /// Qualified name of the class instance the if-equation came from.
     pub origin: QualifiedName,
-    /// The selected if-equation.
+    /// The selected if-equation, or the component's condition.
     pub span: Span,
+    /// What the evaluated conditions decide.
+    #[serde(default)]
+    pub kind: InstanceSelectionKind,
+}
+
+/// What an [`InstanceBranchSelection`] decides at translation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InstanceSelectionKind {
+    /// The branch of an if-equation (MLS §8.3.4).
+    #[default]
+    IfEquation,
+    /// Whether a conditional component exists (MLS §4.4.5).
+    ComponentCondition,
 }
 
 /// A statement in the instance tree.

@@ -70,6 +70,23 @@ pub(super) fn folded_guard_parameters(
             scan.visit_expression(start);
         }
     }
+    // An `Evaluate = true` parameter is fixed at translation by its own
+    // declaration (MLS §18.3) and already exported non-settable, so only the
+    // warning is recorded: the parameters its binding reads keep their
+    // runtime meaning. A `final` one cannot be modified in the first place.
+    for (name, variable) in &flat.variables {
+        if matches!(variable.variability, Variability::Parameter(_))
+            && variable.evaluate
+            && !variable.is_final
+            && variable.fixed_uniform() != Some(false)
+        {
+            scan.owner = Some(variable.source_span);
+            scan.record_selection(
+                flat::StructuralParameterUse::EvaluateAnnotation,
+                std::slice::from_ref(name),
+            );
+        }
+    }
     for chain in &flat.when_chains {
         for branch in chain.branches() {
             scan.owner = Some(branch.span);
@@ -161,6 +178,14 @@ impl GuardScan<'_> {
     /// per owner, use, and parameter set (a nested for-equation reports its
     /// range once, not once per enclosing iteration).
     fn record_use(&mut self, kind: flat::StructuralParameterUse, read: Vec<VarName>) {
+        self.record_selection(kind, &read);
+        self.found.extend(read);
+    }
+
+    /// Record the warning for one structural use of the current owner, once
+    /// per owner, use, and parameter set, without admitting its parameters
+    /// to the evaluable set.
+    fn record_selection(&mut self, kind: flat::StructuralParameterUse, read: &[VarName]) {
         let mut parameters = read.iter().map(ToString::to_string).collect::<Vec<_>>();
         parameters.sort();
         parameters.dedup();
@@ -174,7 +199,6 @@ impl GuardScan<'_> {
                 self.selections.push(selection);
             }
         }
-        self.found.extend(read);
     }
 }
 

@@ -86,8 +86,8 @@ pub use semantic_identity::{
 pub use instance::{
     ClassInstanceData, ClassOverride, ClassOverrideMap, InstanceBranchSelection,
     InstanceConnection, InstanceConnectionEndpoint, InstanceConnectionFamily, InstanceData,
-    InstanceEquation, InstanceOverlay, InstanceStatement, InstancedTree, ModificationEnvironment,
-    ModificationValue, QualifiedName,
+    InstanceEquation, InstanceOverlay, InstanceSelectionKind, InstanceStatement, InstancedTree,
+    ModificationEnvironment, ModificationValue, QualifiedName,
 };
 pub use scope::{Import as ScopeImport, InheritedMember, Scope, ScopeKind, ScopeTree};
 pub use state_machines::{State, StateMachine, StateMachineState, StateMachines, Transition};

@@ -145,6 +145,7 @@ pub(super) fn parameter_branch_selections(
                     conditions,
                     origin: origin.clone(),
                     span: equation_owner_span(equation, equation.get_location(), source_map)?,
+                    kind: ast::InstanceSelectionKind::IfEquation,
                 });
             }
         }

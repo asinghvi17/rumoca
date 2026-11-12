@@ -59,12 +59,19 @@ fn process_class_instance_body(
         override_aliases_for_component_path(&class_scope, component_override_map);
     let owner_instance_path = ctx.algorithm_owner_instance_path(class_data)?;
 
-    // Branch selections instantiation made by evaluating a parameter guard
-    // (SPEC_0040 DAE-C22), qualified like the equations of this instance.
+    // Branch selections and component conditions instantiation decided by
+    // evaluating a parameter guard (SPEC_0040 DAE-C22), qualified like the
+    // equations of this instance.
     for selection in &class_data.parameter_branch_selections {
+        let kind = match selection.kind {
+            ast::InstanceSelectionKind::IfEquation => flat::StructuralParameterUse::BranchSelection,
+            ast::InstanceSelectionKind::ComponentCondition => {
+                flat::StructuralParameterUse::ComponentCondition
+            }
+        };
         flat.parameter_branch_selections
             .push(equations::parameter_branch_selection(
-                flat::StructuralParameterUse::BranchSelection,
+                kind,
                 &selection.conditions,
                 prefix,
                 selection.span,

@@ -799,6 +799,9 @@ pub struct Variable {
     /// makes the parameter non-evaluable (MLS §4.5, §18.6).
     #[serde(default)]
     pub evaluate_refused: bool,
+    /// True if the declaration or a modification of it is `final` (MLS §7.2.6).
+    #[serde(default)]
+    pub is_final: bool,
 
     /// True if this variable's base type is Integer or Boolean (MLS §4.5).
     /// Such variables are discrete by default even without explicit `discrete` prefix.
@@ -956,6 +959,7 @@ impl Variable {
             binding_from_modification: false,
             evaluate: false,
             evaluate_refused: false,
+            is_final: false,
             is_discrete_type: false,
             is_primitive: false,
             from_expandable_connector: false,
@@ -1641,11 +1645,18 @@ pub enum StructuralParameterUse {
     WhenTargetSubscript,
     /// An exact current discrete-value predecessor selected at translation.
     DiscreteDependencySubscript,
+    /// A conditional component's condition (MLS §4.4.5): whether the
+    /// component exists is decided at translation.
+    ComponentCondition,
+    /// A parameter declared `annotation(Evaluate = true)` (MLS §18.3): its
+    /// value is used for symbolic processing. DAE construction reports it
+    /// from the declaration; it is never a Flat branch selection.
+    EvaluateAnnotation,
 }
 
 /// One flatten use that evaluated parameter values at translation
-/// (SPEC_0040 DAE-C22): a branch selection, an array dimension, or a
-/// for-equation range.
+/// (SPEC_0040 DAE-C22): a branch selection, an array dimension, a
+/// for-equation range, or a conditional component's condition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParameterBranchSelection {
     /// The selected if-equation, the declaration, or the for-equation.

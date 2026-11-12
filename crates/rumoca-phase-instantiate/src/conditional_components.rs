@@ -200,6 +200,28 @@ pub(crate) fn mark_disabled_component_if_needed(
     Ok(true)
 }
 
+/// Each conditional component of a class whose condition reads a component
+/// reference, as a structural selection of the parameters it reads: the
+/// condition decides at translation whether the component exists
+/// (MLS §4.4.5, SPEC_0040 DAE-C22), enabled or not.
+pub(crate) fn component_condition_selections(
+    effective_components: &IndexMap<String, ast::Component>,
+    origin: &ast::QualifiedName,
+) -> Vec<ast::InstanceBranchSelection> {
+    effective_components
+        .values()
+        .filter_map(|comp| {
+            let cond = comp.condition.as_ref()?;
+            (!ast::collect_component_refs(cond).is_empty()).then(|| ast::InstanceBranchSelection {
+                conditions: vec![cond.clone()],
+                origin: origin.clone(),
+                span: cond.span(),
+                kind: ast::InstanceSelectionKind::ComponentCondition,
+            })
+        })
+        .collect()
+}
+
 /// Decide a conditional component's condition (MLS §4.4.5).
 ///
 /// The condition is first read exactly as written. Only when that leaves it

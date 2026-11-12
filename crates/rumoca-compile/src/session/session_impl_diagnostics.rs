@@ -641,8 +641,9 @@ fn build_model_diagnostics_for_typed_model(
 /// One WD001 warning per structural use of ordinary parameters: a guard
 /// selecting between structurally different branches (MLS 3.7 §8.3.4), an
 /// array dimension (§10.1), a for-equation range (§8.3.3), or a call argument
-/// a declared input or output dimension of the callee reads (§10.1, §12.2).
-/// Each fixes its
+/// a declared input or output dimension of the callee reads (§10.1, §12.2),
+/// a conditional component's condition (§4.4.5), or an `Evaluate = true`
+/// declaration (§18.3). Each fixes its
 /// parameters at translation, so they cannot be set (SPEC_0040 DAE-C22).
 fn structural_selection_warnings(
     selections: &[rumoca_phase_dae::StructuralSelection],
@@ -685,6 +686,21 @@ fn structural_selection_warnings(
                 rumoca_ir_flat::StructuralParameterUse::DiscreteDependencySubscript => (
                     format!("this discrete-value dependency is selected at translation, so parameter{plural} {parameters} cannot be set (MLS 3.7 §8.3.5, §10.5)"),
                     "discrete dependency fixed at translation",
+                ),
+                rumoca_ir_flat::StructuralParameterUse::ComponentCondition => (
+                    format!(
+                        "this component condition is decided at translation, so parameter{plural} \
+                         {parameters} cannot be set: the component exists or not by its value \
+                         (MLS 3.7 §4.4.5)"
+                    ),
+                    "component existence fixed at translation",
+                ),
+                rumoca_ir_flat::StructuralParameterUse::EvaluateAnnotation => (
+                    format!(
+                        "this declaration has annotation(Evaluate = true), so parameter{plural} \
+                         {parameters} is evaluated at translation and cannot be set (MLS 3.7 §18.3)"
+                    ),
+                    "evaluated at translation",
                 ),
                 rumoca_ir_flat::StructuralParameterUse::SpecializationArgument => (
                     format!(

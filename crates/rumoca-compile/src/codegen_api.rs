@@ -3,7 +3,7 @@ use rumoca_ir_dae as dae;
 use rumoca_ir_flat as flat;
 use serde_json::Value;
 
-pub use rumoca_phase_codegen::{CodegenError, TemplateExperiment};
+pub use rumoca_phase_codegen::{CodegenError, FlatTemplateContext, TemplateExperiment};
 
 pub fn dae_to_template_json(dae_model: &dae::Dae) -> Result<Value, CodegenError> {
     rumoca_phase_codegen::dae_template_json(dae_model)
@@ -29,14 +29,14 @@ pub fn render_flat_template_with_name(
     rumoca_phase_codegen::render_flat_template_with_name(flat_model, template, model_name)
 }
 
-pub fn render_flat_template_with_experiment(
+pub fn render_flat_template_with_context(
     flat_model: &flat::Model,
     template: &str,
     model_name: &str,
-    experiment: &TemplateExperiment,
+    context: &FlatTemplateContext,
 ) -> Result<String, CodegenError> {
-    rumoca_phase_codegen::render_flat_template_with_experiment(
-        flat_model, template, model_name, experiment,
+    rumoca_phase_codegen::render_flat_template_with_context(
+        flat_model, template, model_name, context,
     )
 }
 

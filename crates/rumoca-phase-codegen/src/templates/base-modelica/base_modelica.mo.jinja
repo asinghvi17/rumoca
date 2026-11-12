@@ -12,6 +12,7 @@
     scalar equation per element, for consumers that do not handle arrays.
 -#}
 {%- set scalarize = scalarize | default(false) %}
+{%- set evaluated = evaluated_parameters | default({}) %}
 {%- set ns_enum = namespace(names=[]) %}
 {%- for _id, decl in flat.enumeration_declarations | items %}
 {%- set ns_enum.names = ns_enum.names + [decl.name] %}
@@ -139,13 +140,22 @@
 {%- if text %} "{{ text }}"{% endif -%}
 {%- endmacro -%}
 
+{#- A parameter translation evaluated (one a structural use fixed, one its
+    binding reads, an `Evaluate = true` one, or a `final` one with an
+    evaluable binding) keeps full Modelica's `annotation(Evaluate = true)`:
+    MCP-0031 keeps annotations as annotations, and its value can no longer
+    take effect once changed. A `constant` stays `constant`. -#}
+{%- macro evaluate_annotation(name, var) -%}
+{%- if var.variability is mapping and var.variability.Parameter is defined and name in evaluated %} annotation(Evaluate = true){% endif -%}
+{%- endmacro -%}
+
 {%- macro declaration(name, var) -%}
 {%- if scalarize and var.dims | length > 0 -%}
 {%- for index in scalar_indices(var.dims) %}
-    {{ prefix(name, var) }}{{ type_name(name) }} {{ quote_ident(name ~ "[" ~ index ~ "]") }}{{ attrs(var, index) }}{{ binding(var, index) }}{{ description(var.description) }};
+    {{ prefix(name, var) }}{{ type_name(name) }} {{ quote_ident(name ~ "[" ~ index ~ "]") }}{{ attrs(var, index) }}{{ binding(var, index) }}{{ description(var.description) }}{{ evaluate_annotation(name, var) }};
 {%- endfor -%}
 {%- else %}
-    {{ prefix(name, var) }}{{ type_name(name) }} {{ quote_ident(name) }}{% if var.dims | length > 0 %}[{{ var.dims | join(", ") }}]{% endif %}{{ attrs(var) }}{{ binding(var) }}{{ description(var.description) }};
+    {{ prefix(name, var) }}{{ type_name(name) }} {{ quote_ident(name) }}{% if var.dims | length > 0 %}[{{ var.dims | join(", ") }}]{% endif %}{{ attrs(var) }}{{ binding(var) }}{{ description(var.description) }}{{ evaluate_annotation(name, var) }};
 {%- endif -%}
 {%- endmacro -%}
 

@@ -29,6 +29,7 @@ mod discrete_input_render_tests;
 mod discrete_render_view;
 mod experiment;
 mod expr_config;
+mod flat_context;
 mod flat_family_loops;
 mod fmi_c_assertions;
 #[cfg(test)]
@@ -49,6 +50,7 @@ mod solve_block_renderer;
 #[cfg(test)]
 mod solve_render_fixture_tests;
 pub use experiment::TemplateExperiment;
+pub use flat_context::FlatTemplateContext;
 pub use native_fmi_renderer::NativeFmiTemplateRenderer;
 #[cfg(test)]
 mod native_range_render_tests;
@@ -196,7 +198,7 @@ fn render_with_input_context(
             render_solve_context(tmpl, problem, artifacts, name)?
         }
         (CodegenInput::Flat(flat_model), name) => {
-            render_flat_input(tmpl, flat_model, name, &TemplateExperiment::default())?
+            render_flat_input(tmpl, flat_model, name, &FlatTemplateContext::default())?
         }
         (CodegenInput::Ast(ast_tree), name) => render_ast_context(tmpl, ast_tree, name)?,
     };
@@ -207,7 +209,7 @@ fn render_flat_input(
     tmpl: &minijinja::Template<'_, '_>,
     flat_model: &flat::Model,
     model_name: Option<&str>,
-    experiment: &TemplateExperiment,
+    context: &FlatTemplateContext,
 ) -> Result<String, CodegenError> {
     // Only a template that reads the model can read a placeholder row
     // (a file-path template reads just the name), and one that reads
@@ -220,7 +222,7 @@ fn render_flat_input(
             reads.contains(flat_family_loops::CONTEXT_KEY),
         )?;
     }
-    let rendered = render_flat_context(tmpl, flat_model, model_name, experiment)?;
+    let rendered = render_flat_context(tmpl, flat_model, model_name, context)?;
     Ok(rendered)
 }
 
@@ -479,12 +481,13 @@ fn render_flat_context(
     tmpl: &minijinja::Template<'_, '_>,
     flat_model: &flat::Model,
     model_name: Option<&str>,
-    experiment: &TemplateExperiment,
+    context: &FlatTemplateContext,
 ) -> RenderResult {
     let flat_value = Value::from_serialize(flat_model);
     let type_names = Value::from_serialize(qualified_enumeration_type_names(flat_model));
     let equation_rows = Value::from_serialize(flat_family_loops::context_value(flat_model));
-    let experiment = experiment.context_value();
+    let experiment = context.experiment.context_value();
+    let evaluated_parameters = context.evaluated_parameters_value();
     match model_name {
         Some(name) => tmpl.render(minijinja::context! {
             flat => flat_value.clone(),
@@ -493,6 +496,7 @@ fn render_flat_context(
             flat_type_names => type_names,
             flat_equation_rows => equation_rows,
             experiment => experiment,
+            evaluated_parameters => evaluated_parameters,
             model_name => name,
         }),
         None => tmpl.render(minijinja::context! {
@@ -502,6 +506,7 @@ fn render_flat_context(
             flat_type_names => type_names,
             flat_equation_rows => equation_rows,
             experiment => experiment,
+            evaluated_parameters => evaluated_parameters,
         }),
     }
 }
@@ -717,19 +722,20 @@ pub fn render_flat_template_with_name(
     render_template_with_name_for_input(CodegenInput::Flat(flat), template, model_name)
 }
 
-/// [`render_flat_template_with_name`] with the root class's
-/// `annotation(experiment(...))` settings exposed as `experiment`, for
-/// templates that carry them into their output.
-pub fn render_flat_template_with_experiment(
+/// [`render_flat_template_with_name`] with the facts Flat does not carry
+/// exposed beside it: the root class's `annotation(experiment(...))` as
+/// `experiment` and the parameters translation evaluated as
+/// `evaluated_parameters`, for templates that carry them into their output.
+pub fn render_flat_template_with_context(
     flat: &flat::Model,
     template: &str,
     model_name: &str,
-    experiment: &TemplateExperiment,
+    context: &FlatTemplateContext,
 ) -> Result<String, CodegenError> {
     let mut env = create_environment();
     env.add_template("inline", template)?;
     let tmpl = env.get_template("inline")?;
-    render_flat_input(&tmpl, flat, Some(model_name), experiment)
+    render_flat_input(&tmpl, flat, Some(model_name), context)
 }
 
 /// Reusable solve-template renderer.

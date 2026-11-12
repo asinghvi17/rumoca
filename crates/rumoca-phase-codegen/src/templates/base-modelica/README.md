@@ -25,6 +25,14 @@ interchange artifact, not a simulation runtime.
 - A parameter or constant that is not `fixed = false` is written with its
   binding only: its `start` is never used (MLS §8.6), so no `start`
   attribute stands beside the value.
+- A parameter translation evaluated keeps full Modelica's
+  `annotation(Evaluate = true)` (MCP-0031 keeps annotations as annotations):
+  one a structural use fixed (an array dimension, a for-equation range, the
+  guard of an unbalanced if-equation, a conditional component's condition),
+  one such a parameter's binding reads, an `Evaluate = true` parameter, and a
+  `final` one with an evaluable binding. Its value was used to derive the
+  emitted structure, so changing it after translation has no effect. Every
+  other parameter is unmarked and tunable; a `constant` stays `constant`.
 - The source's `annotation(experiment(StartTime, StopTime, Tolerance,
   Interval))` becomes the model's class annotation (MCP-0031
   `annotations.md`), with only the entries the source sets.
@@ -50,7 +58,7 @@ interchange artifact, not a simulation runtime.
 ## Unsupported
 
 The output is not original source and does not preserve class hierarchy or
-annotations other than `experiment`. Model record components are not
+annotations other than `experiment` and the `Evaluate = true` marker above. Model record components are not
 emitted as record-typed declarations, and clocked partitions are not emitted
 yet. A Flat construct that cannot be represented fails rendering instead of
 being omitted.
@@ -61,6 +69,9 @@ being omitted.
   `when`/`reinit`, functions, arrays, enumerations, scalarization, bound
   parameters, the `experiment` annotation, records used by functions, and
   that the output recompiles through Rumoca.
+- `suite_core::base_modelica_structural_parameters` renders one probe per
+  kind of structural parameter and checks which parameters are marked
+  `Evaluate = true` and which WD001 warnings the compile reports.
 - `cli_target_acceptance::base_modelica_renders_when_and_algorithms` drives
   the CLI target path.
 - `template_target_ci::modelica_interchange_targets_round_trip_through_the_compiler`

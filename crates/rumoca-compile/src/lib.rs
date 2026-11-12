@@ -142,10 +142,10 @@ pub mod workspace {
 pub mod codegen {
     pub use crate::codegen_api::templates;
     pub use crate::codegen_api::{
-        AlgorithmCodeTemplateRenderer, CodegenError, NativeFmiTemplateRenderer,
-        SolveTemplateRenderer, TemplateExperiment, dae_to_template_json,
+        AlgorithmCodeTemplateRenderer, CodegenError, FlatTemplateContext,
+        NativeFmiTemplateRenderer, SolveTemplateRenderer, TemplateExperiment, dae_to_template_json,
         render_algorithm_code_template_with_artifact, render_ast_template_with_name,
-        render_dae_template, render_dae_template_with_name, render_flat_template_with_experiment,
+        render_dae_template, render_dae_template_with_name, render_flat_template_with_context,
         render_flat_template_with_name, render_solve_template_with_name,
     };
     pub mod targets {

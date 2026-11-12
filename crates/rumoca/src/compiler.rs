@@ -41,8 +41,9 @@ use std::sync::Arc;
 
 use rumoca_compile::analysis as dae_analysis;
 use rumoca_compile::codegen::{
-    CodegenError, SolveTemplateRenderer, TemplateExperiment, render_ast_template_with_name,
-    render_dae_template, render_dae_template_with_name, render_flat_template_with_experiment,
+    CodegenError, FlatTemplateContext, SolveTemplateRenderer, TemplateExperiment,
+    render_ast_template_with_name, render_dae_template, render_dae_template_with_name,
+    render_flat_template_with_context,
 };
 use rumoca_compile::compile::{
     Dae, DaeCompilationResult as CompileDaeCompilationResult, FlatModel, SemanticDiagnosticsMode,
@@ -234,11 +235,16 @@ impl CompilationResult {
                     .render_with_name(template, model_name)
                     .map_err(CompilerError::TemplateError)
             }
-            TemplateIr::Flat => render_flat_template_with_experiment(
+            TemplateIr::Flat => render_flat_template_with_context(
                 &self.flat,
                 template,
                 model_name,
-                &self.experiment,
+                &FlatTemplateContext {
+                    experiment: self.experiment,
+                    evaluated_parameters: FlatTemplateContext::evaluated_parameters(
+                        &self.dae, &self.flat,
+                    ),
+                },
             )
             .map_err(CompilerError::TemplateError),
             TemplateIr::Ast => {

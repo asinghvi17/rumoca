@@ -11,6 +11,7 @@ use serde::Serialize;
 
 mod algorithm_code_renderer;
 mod base_modelica;
+mod base_modelica_records;
 mod base_modelica_scalarize;
 #[cfg(test)]
 mod base_modelica_tests;
@@ -908,6 +909,10 @@ fn create_environment() -> Environment<'static> {
     env.add_function(
         "unroll_family",
         base_modelica_scalarize::unroll_family_function,
+    );
+    env.add_function(
+        "record_field_equations",
+        base_modelica_records::record_field_equations_function,
     );
 
     // Custom function for detecting self-referential (builtin alias) functions

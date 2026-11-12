@@ -501,10 +501,13 @@ fn records_used_by_functions_are_package_classes() {
     assert!(!out.contains("function 'Rec.Point'"), "{out}");
 }
 
-/// A record-valued equation on a model record (flattened to its fields) has
-/// no Base Modelica spelling; it is refused rather than emitted undeclared.
+/// A record-valued equation on a model record (flattened to its fields) is
+/// its field equations (MLS §8.3.1): from another record of the same type,
+/// from a constructor call, and from a function returning the record, each
+/// field read off the call (MSL QuasiStatic and ComplexBlocks `Complex`
+/// equations).
 #[test]
-fn a_record_valued_model_equation_is_refused() {
+fn record_valued_model_equations_are_written_field_by_field() {
     let source = "package Rec
   record Point
     Real x;
@@ -518,15 +521,25 @@ fn a_record_valued_model_equation_is_refused() {
   end make;
   model M
     Point w;
+    Point u;
+    Point c;
   equation
     w = make(time);
+    u = w;
+    c = Point(time, 3);
   end M;
 end Rec;";
-    let error = render(source, "Rec.M", "base-modelica").expect_err("record equation");
-    assert!(
-        error.contains("unsupported-feature:base-modelica-record-value") && error.contains("`w`"),
-        "{error}"
-    );
+    for target in ["base-modelica", "base-modelica-scalar"] {
+        let out = render_ok(source, "Rec.M", target);
+        assert_contains_all(
+            &out,
+            &[
+                "    'w.x' = 'make'(time).'x';\n    'w.y' = 'make'(time).'y';",
+                "    'u.x' = 'w.x';\n    'u.y' = 'w.y';",
+                "    'c.x' = time;\n    'c.y' = 3;",
+            ],
+        );
+    }
 }
 
 /// Re-reads emitted Base Modelica through the compiler under its quoted path.

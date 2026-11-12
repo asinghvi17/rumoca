@@ -238,8 +238,8 @@
     into one scalar equation per element. -#}
 {%- macro equation_rows(rows) -%}
 {%- for row in rows %}
-{%- if scalarize %}
-{%- for eq in (unroll_family(row.loop, flat.variables) if "loop" in row else scalarize_equation(row.equation, flat.variables)) %}
+{%- if scalarize and "loop" in row %}
+{%- for eq in unroll_family(row.loop, flat.variables) %}
     {{ render_flat_equation(eq, cfg) }};
 {%- endfor %}
 {%- elif "loop" in row %}
@@ -253,7 +253,13 @@
     {{ "  " * (row.loop.headers | length - loop.index) }}end for;
 {%- endfor %}
 {%- else %}
-    {{ render_flat_equation(row.equation, cfg) }};
+{#- A record-valued equation on a flattened record is its field equations
+    (MLS §8.3.1). #}
+{%- for field_eq in record_field_equations(row.equation, flat.record_instances, flat.record_types, flat.functions) %}
+{%- for eq in (scalarize_equation(field_eq, flat.variables) if scalarize else [field_eq]) %}
+    {{ render_flat_equation(eq, cfg) }};
+{%- endfor %}
+{%- endfor %}
 {%- endif %}
 {%- endfor -%}
 {%- endmacro -%}

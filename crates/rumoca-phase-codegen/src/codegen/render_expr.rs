@@ -1271,6 +1271,13 @@ fn render_field_access(fa: &Value, cfg: &ExprConfig) -> RenderResult {
     let field = get_field(fa, "field")
         .map(|v| v.to_string())
         .map_err(|_| render_err("FieldAccess missing 'field'"))?;
+    // MCP-0031 declares every record member as a quoted identifier.
+    if cfg.base_modelica {
+        return Ok(format!(
+            "{base}.{}",
+            super::symbol_alloc::quote_identifier(&field)
+        ));
+    }
     Ok(format!("{base}.{field}"))
 }
 

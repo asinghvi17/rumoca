@@ -148,9 +148,12 @@ RULES = [
     ("emit", r"timeout", "rumoca: timeout", "rumoca"),
     ("emit", r".", "rumoca: other", "rumoca"),
     # --- Julia stages (raw text includes the head of the jlog)
+    ("parse", r"syntax error\(s\) line \d+, column \d+: (missing ';' at '\.'|mismatched input '\.')", "rumoca: member access on a function-call result `f(...).'x'` is not Base Modelica (record-valued calls)", "rumoca"),
     ("parse", r"missing ';' at '\['", "rumoca: subscripted array literal [..][i,j] is not Base Modelica (Digital logic tables)", "rumoca"),
     ("parse", r"RecursionError", "BaseModelica.jl: ANTLR (Python) recursion limit on deeply nested expressions", "BaseModelica.jl"),
     ("parse", r".", "BaseModelica.jl: other parse error", "BaseModelica.jl"),
+    ("convert", r"no method matching Float64\(::Num\)", "BaseModelica.jl: sample(start, interval) with parameter-valued arguments (events.jl sample_args)", "BaseModelica.jl"),
+    ("convert", r"no method matching fill\(::Num, ::Num\)", "BaseModelica.jl: fill() sized by a parameter", "BaseModelica.jl"),
     ("convert", r"initial algorithm sections may only contain assignments", "BaseModelica.jl: assert() in initial algorithm rejected", "BaseModelica.jl"),
     ("convert", r"array variable", "BaseModelica.jl: array variables unsupported (array-preserving output)", "BaseModelica.jl"),
     ("convert", r"function `…` is not supported", "BaseModelica.jl: event operators initial()/terminal()/edge() unsupported", "BaseModelica.jl"),

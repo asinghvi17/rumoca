@@ -498,3 +498,142 @@ Each batch stops dispatching at 18 min and kills stragglers at 29 min without
 writing a row, so a re-run picks them up. Delete `work/rows/<model>.tsv` to redo
 one model. Environment: `JULIA_PKG_USE_CLI_GIT=true`, `GIT_TERMINAL_PROMPT=0`, and
 the DyadRegistry added by git URL.
+
+## Batch 1: rumoca emitter fixes (rerun)
+
+Six rumoca fixes, each its own commit with a regression test, were rerun over
+all 534 models with the same scripts. Emit and every Julia stage ran, not only
+parse. Same MSL, BaseModelica.jl revision, Julia environment and harness as
+above.
+
+The six fixes:
+1. Function array-parameter dimensions render as subscripts (`u[:]`, `b[size(a, 1)]`, `c[2]`).
+2. Event `sample(start, interval)` is kept.
+3. `String(x, …)` renders with its format arguments.
+4. Descriptions and string literals are re-escaped.
+5. The function dead-arm check rejects only rank mismatches; extents are left
+   to run time.
+6. Record-valued model equations are written field by field: from a record,
+   from a constructor, or from a function returning the record.
+
+Files:
+- `results-rumoca-batch1.tsv` (same columns as `results.tsv`);
+- `categories-rumoca-batch1.tsv`;
+- `tables-rumoca-batch1.md`.
+
+`categorize.py` gained three rules for categories that did not exist before
+(see "Next blockers" below).
+
+| stage | before | batch 1 |
+|---|---|---|
+| emit (either target) | 107 | **359** (67.2%) |
+| parse | 103 | **239** |
+| convert | 80 | 84 |
+| simplify | 61 | 68 |
+| init + solve | 55 | 60 |
+| **compare (pass)** | 46 | **51** |
+
+- **Emit by target:**
+  - array-preserving: 359 ok / 175 fail;
+  - scalar: 131 ok / 402 fail / 1 timeout (`Lines.SmoothStep` again).
+  - 227 models emit only in array form.
+- **No model regressed.** Every model that emitted, parsed or passed before still
+  does.
+- **New passes (5):** ComplexBlocks `TestConversionBlock`, OpAmps `Differentiator`
+  and `LowPass`, `ShowSaturatingInductor`, `DCPM_CurrentControlled`. `LowPass` is in
+  the nondeterministic binding set (category 8), so treat it as ±1.
+- **Owner totals** (483 failures):
+  - rumoca 291 (was 429);
+  - BaseModelica.jl 175 (was 44);
+  - BaseModelica.jl/MTK 10;
+  - solver 4;
+  - MTK 3.
+
+**What each fix cleared, at the emit stage:**
+
+| category | before | batch 1 |
+|---|---|---|
+| function array-parameter dimensions | 212 | 0 |
+| `sample()` not rendered | 51 | 12 |
+| `String()` conversion | 27 | 0 |
+| ED019 shape check in unreachable function branches | 20 | 0 |
+| record-valued equations / record paths | 19 | 5 |
+
+Notes on those counts:
+- **`sample()`:** the 12 left are all `Modelica.Clocked`, the clocked `sample(u)`,
+  which belongs to category 3.
+- **Records:** the 5 left are 3 "subscripted record path in an algorithm"
+  (`VectorDelay`, `PolyphaseTwoLevel_R`/`_RL`) and 2 record values in other forms
+  (`Spice3BenchmarkFourBitBinaryAdder`, `PlanarFourbar`).
+- **Escaping:** it had no emit category; no parse failure in batch 1 is an
+  escaping error.
+- **Dead-branch fix:** of the 20 models it unblocked, 19 are QuasiStatic
+  FundamentalWave machines. They now stop at the next rumoca DAE blocker:
+  - ED001 unbalanced ×8;
+  - ED020 "wrong DAE coordinate role" ×6;
+  - ED010 discrete solved form ×4.
+
+  That is most of the 27 in "rumoca: other".
+
+### Next blockers (batch 1)
+
+| stage | category | owner | models |
+|---|---|---|---|
+| convert | array variables (array-preserving file used) | BaseModelica.jl (or rumoca's scalar target) | **126** |
+| parse | member access on a function-call result `f(...).'x'` | rumoca | **109** |
+| emit | Clock / synchronous operators (incl. 12 clocked `sample`) | rumoca (+ BM.jl) | 69 + 12 |
+| emit | other (ED001 ×8, ED020 ×6, ED010 ×4, ET001 ×3, …) | rumoca | 27 |
+| emit | ED013 model `algorithm` with loops / `break` (Digital) | rumoca | 16 |
+| emit | ED019 other: function arrays / records / loops | rumoca | 14 |
+| convert | `assert` in `initial algorithm` | BaseModelica.jl | 13 |
+| simplify | parameter bindings (nondeterministic) | BaseModelica.jl | 12 |
+| emit | scalar target cannot scalarize (no array file either) | rumoca | 9 |
+| parse | subscripted array literal / subscripted call result | rumoca | 7 + 2 |
+| convert | `fill()` sized by a parameter | BaseModelica.jl | 7 |
+| convert | `sample(start, interval)` with parameter arguments | BaseModelica.jl | 3 |
+
+1. **Arrays (126).**
+   - The 227 array-only models reach Julia with the array file, and BaseModelica.jl
+     stops at the arrays.
+   - The scalar target refuses them for these reasons:
+     - a whole-array reference: 64;
+     - an array-valued builtin: 61;
+     - an array-valued `if`: 29;
+     - a call with an array argument: 25;
+     - an array-valued function call: 19;
+     - a ragged array value: 10;
+     - other: 19.
+   - Either BaseModelica.jl array support (L) or a scalar target that handles
+     array-valued calls unlocks these. This is now the largest category; the
+     original summary predicted it under category 1.
+2. **`f(...).'x'` (109), rumoca, S/M.** BaseModelica.jl's grammar, like
+   Modelica's, has no member access on a call result (`missing ';' at '.'`).
+   - Flat already writes it for record-valued calls nested in expressions:
+     MultiBody `Frames` orientation records (`).'T'`, `).'w'`), Media
+     `ThermodynamicState` (`).'p'`, `).'T'`), and every `Complex` operator in
+     QuasiStatic and FundamentalWave.
+   - Fix 6 adds the same form for whole-record equations
+     (`'v.re' = f(...).'re'`), so the 16 record-equation models it unblocked
+     land here too.
+   - Fix: hoist each record-valued call into a generated record-typed local, or
+     emit one projection function per field. Either needs record-typed
+     declarations in the model section, which MCP-0031 allows.
+   - By sub-library: Mechanics 40, Magnetic 36, Fluid 16, Electrical 15, Media 2.
+3. **`sample()` with parameter arguments (3), BaseModelica.jl.**
+   - `events.jl:202` (`sample_args`) converts start/interval with
+     `Float64(...)`, which fails on a parameter (`no method matching
+     Float64(::Num)`).
+   - Models: `CauerLowPassSC`, `IdealTriacCircuit`, `SwitchWithArc`.
+   - Rumoca's output (`sample('p.startTime', 'p.period')`) is valid. BaseModelica.jl
+     needs to evaluate parameter-valued arguments.
+4. **Subscripted expressions (2 more), rumoca, S.**
+   - `fill(...)[1:0]` (`SimpleLiquidWater`) and `fitting(...)[...]` (`TestGlycol`)
+     fail like the subscripted array literal: Base Modelica subscripts only names.
+   - The same hoisting fixes them.
+
+**Timing:**
+- emit: ~6 min at 12 jobs;
+- Julia stages: 359 models in 358 s at 5 workers.
+
+**Rerun:** the commands under "Rerun" above, with `categorize.py … OUTDIR`
+pointed at a scratch directory.

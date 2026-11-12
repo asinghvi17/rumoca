@@ -24,9 +24,12 @@
 //! An equation whose sides are record values that no record-equation owner
 //! reads directly (`a + b = Complex(0, 0)`) is stated field by field, so each
 //! field is one scalar equation, as the record equation denotes (MLS §8.4).
+//! A dynamic if-equation whose branches are such record equations is stated
+//! as one conditional residual per field the same way (MLS §8.3.4).
 
 mod arrays;
 mod catalog;
+mod vectorized;
 
 use rumoca_core::{
     DefId, Expression, ExpressionRewriter, OpBinary, OpUnary, Span, StatementRewriter,
@@ -43,9 +46,10 @@ use catalog::{OperandType, OperatorCatalog, OperatorFunction};
 pub(crate) fn resolve_operator_overloads(
     flat: &mut flat::Model,
     classes: &ast::ClassDefIndex<'_>,
+    integer_parameters: &dyn Fn(&str) -> Option<i64>,
 ) -> Result<(), FlattenError> {
     let mut catalog = OperatorCatalog::new(classes);
-    let scope = ModelScope::from_model(flat);
+    let scope = ModelScope::from_model(flat, integer_parameters);
     let mut resolver = Resolver {
         catalog: &mut catalog,
         scope: &scope,
@@ -147,19 +151,35 @@ trait Scope {
         catalog: &OperatorCatalog<'_>,
         name: &str,
     ) -> Option<(OperandType, usize)>;
+    /// The extent of the vector variable `name`.
+    fn vector_extent(&self, _name: &str) -> Option<i64> {
+        None
+    }
+    /// The translation-time value of the Integer variable `name`.
+    fn integer_value(&self, _name: &str) -> Option<i64> {
+        None
+    }
 }
 
-struct ModelScope {
+struct ModelScope<'params> {
     records: rustc_hash::FxHashMap<String, DefId>,
     record_arrays: rustc_hash::FxHashMap<String, (DefId, Vec<rumoca_core::ComponentReference>)>,
     /// Every declared variable's numeric scalar type (`None` when it is not
     /// Real or Integer) and rank.
     variables: rustc_hash::FxHashMap<String, (Option<OperandType>, usize)>,
     record_types: rustc_hash::FxHashMap<DefId, Vec<(String, DefId)>>,
+    /// The extent of every vector variable.
+    vector_extents: rustc_hash::FxHashMap<String, i64>,
+    /// The evaluated Integer parameter of a flat name, for the extent of a
+    /// `fill` argument.
+    integer_values: &'params dyn Fn(&str) -> Option<i64>,
 }
 
-impl ModelScope {
-    fn from_model(flat: &flat::Model) -> Self {
+impl<'params> ModelScope<'params> {
+    fn from_model(
+        flat: &flat::Model,
+        integer_values: &'params dyn Fn(&str) -> Option<i64>,
+    ) -> Self {
         Self {
             record_arrays: record_arrays(flat),
             records: flat
@@ -178,6 +198,15 @@ impl ModelScope {
                     )
                 })
                 .collect(),
+            vector_extents: flat
+                .variables
+                .iter()
+                .filter_map(|(name, variable)| match variable.dims.as_slice() {
+                    [extent] => Some((name.as_str().to_string(), *extent)),
+                    _ => None,
+                })
+                .collect(),
+            integer_values,
             record_types: flat
                 .record_types
                 .iter()
@@ -196,7 +225,7 @@ impl ModelScope {
     }
 }
 
-impl ModelScope {
+impl ModelScope<'_> {
     /// The field names and definitions of record class `def_id`.
     fn record_fields(&self, def_id: DefId) -> Option<Vec<(String, DefId)>> {
         self.record_types.get(&def_id).cloned()
@@ -208,7 +237,7 @@ impl ModelScope {
     }
 }
 
-impl Scope for ModelScope {
+impl Scope for ModelScope<'_> {
     fn declares(&self, name: &str) -> bool {
         self.variables.contains_key(name)
             || self.records.contains_key(name)
@@ -239,6 +268,14 @@ impl Scope for ModelScope {
     ) -> Option<(OperandType, usize)> {
         let (scalar, rank) = self.variables.get(name)?;
         Some(((*scalar)?, *rank))
+    }
+
+    fn vector_extent(&self, name: &str) -> Option<i64> {
+        self.vector_extents.get(name).copied()
+    }
+
+    fn integer_value(&self, name: &str) -> Option<i64> {
+        (self.integer_values)(name)
     }
 
     fn record_array(&self, name: &str) -> Option<(DefId, &[rumoca_core::ComponentReference])> {
@@ -329,49 +366,43 @@ impl Resolver<'_, '_, '_> {
     /// directly is stated field by field.
     /// Returns whether the equation was restated field by field.
     fn rewrite_equation(&mut self, model: &ModelScope, equation: &mut flat::Equation) -> bool {
-        let Expression::Binary {
-            op: OpBinary::Sub,
-            lhs,
-            rhs,
-            span,
-        } = &equation.residual
-        else {
-            equation.residual = self.rewrite_expression(&equation.residual);
-            return false;
-        };
-        let lhs = self.rewrite_expression(lhs);
-        let rhs = self.rewrite_expression(rhs);
-        let span = *span;
-        let (left, right) = (self.operand_type(&lhs), self.operand_type(&rhs));
-        let pairs = match (left, right) {
-            (OperandType::Record(owner), _) | (_, OperandType::Record(owner))
-                if !self.owned_record_equation(model, &lhs, &rhs) =>
-            {
-                Some((owner, vec![(lhs.clone(), rhs.clone())]))
+        let (elements, span) = match &equation.residual {
+            Expression::Binary {
+                op: OpBinary::Sub,
+                lhs,
+                rhs,
+                span,
+            } => {
+                let span = *span;
+                let lhs = self.rewrite_expression(lhs);
+                let rhs = self.rewrite_expression(rhs);
+                let owned = self.owned_record_equation(model, &lhs, &rhs);
+                match self.field_residuals(model, &lhs, &rhs, owned, span) {
+                    Some(elements) => (elements, span),
+                    None => {
+                        equation.residual = subtract(lhs, rhs, span);
+                        return false;
+                    }
+                }
             }
-            (OperandType::RecordVector(owner), _) | (_, OperandType::RecordVector(owner)) => self
-                .vector_equation_pairs(&lhs, &rhs, span)
-                .map(|pairs| (owner, pairs)),
-            _ => None,
+            Expression::If {
+                branches,
+                else_branch,
+                span,
+            } if is_conditional_equation(branches, else_branch) => {
+                match self.conditional_field_residuals(model, branches, else_branch, *span) {
+                    Ok(elements) => (elements, *span),
+                    Err(residual) => {
+                        equation.residual = *residual;
+                        return false;
+                    }
+                }
+            }
+            residual => {
+                equation.residual = self.rewrite_expression(residual);
+                return false;
+            }
         };
-        let Some((fields, pairs)) =
-            pairs.and_then(|(owner, pairs)| Some((self.owner_fields(model, owner)?, pairs)))
-        else {
-            equation.residual = subtract(lhs, rhs, span);
-            return false;
-        };
-        let elements = pairs
-            .iter()
-            .flat_map(|(lhs, rhs)| {
-                fields.iter().map(move |(field, def_id)| {
-                    subtract(
-                        field_access(lhs, field, *def_id, span),
-                        field_access(rhs, field, *def_id, span),
-                        span,
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
         equation.scalar_count = elements.len();
         equation.residual = Expression::Array {
             elements,
@@ -379,6 +410,110 @@ impl Resolver<'_, '_, '_> {
             span,
         };
         true
+    }
+
+    /// The scalar residuals of the record equation `lhs = rhs`, one per
+    /// element and field, or `None` when it is not a record equation or is
+    /// `owned` by a record-equation owner that reads it directly.
+    fn field_residuals(
+        &mut self,
+        model: &ModelScope,
+        lhs: &Expression,
+        rhs: &Expression,
+        owned: bool,
+        span: Span,
+    ) -> Option<Vec<Expression>> {
+        let (owner, pairs) = match (self.operand_type(lhs), self.operand_type(rhs)) {
+            (OperandType::Record(owner), _) | (_, OperandType::Record(owner)) if !owned => {
+                (owner, vec![(lhs.clone(), rhs.clone())])
+            }
+            (OperandType::RecordVector(owner), _) | (_, OperandType::RecordVector(owner)) => {
+                (owner, self.vector_equation_pairs(lhs, rhs, span)?)
+            }
+            _ => return None,
+        };
+        let fields = self.owner_fields(model, owner)?;
+        Some(
+            pairs
+                .iter()
+                .flat_map(|(lhs, rhs)| {
+                    fields.iter().map(move |(field, def_id)| {
+                        subtract(
+                            field_access(lhs, field, *def_id, span),
+                            field_access(rhs, field, *def_id, span),
+                            span,
+                        )
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// A dynamic if-equation whose branches are record equations
+    /// (`if G > 0 then 2*x = y; else x = Complex(0, 0); end if;`, which
+    /// flatten keeps as the residual `if G > 0 then 2*x - y else x - ...`),
+    /// as one conditional residual per field: each field is one scalar
+    /// equation in every branch (MLS §8.3.4, §8.4). The branch residual of a
+    /// record equation is a record value, so left whole it would state one
+    /// equation for the record. `Err` carries the rewritten residual of an
+    /// if-equation whose branches are not record equations of one size.
+    fn conditional_field_residuals(
+        &mut self,
+        model: &ModelScope,
+        branches: &[(Expression, Expression)],
+        else_branch: &Expression,
+        span: Span,
+    ) -> Result<Vec<Expression>, Box<Expression>> {
+        let conditions: Vec<Expression> = branches
+            .iter()
+            .map(|(condition, _)| self.rewrite_expression(condition))
+            .collect();
+        let mut sides = Vec::with_capacity(branches.len() + 1);
+        for value in branches.iter().map(|(_, value)| value).chain([else_branch]) {
+            let Expression::Binary { lhs, rhs, span, .. } = value else {
+                unreachable!("is_conditional_equation checked every branch");
+            };
+            sides.push((
+                self.rewrite_expression(lhs),
+                self.rewrite_expression(rhs),
+                *span,
+            ));
+        }
+        let restated = sides
+            .iter()
+            .map(|(lhs, rhs, span)| self.field_residuals(model, lhs, rhs, false, *span))
+            .collect::<Option<Vec<_>>>()
+            .filter(|restated| {
+                restated
+                    .iter()
+                    .all(|elements| elements.len() == restated[0].len())
+            });
+        let Some(mut restated) = restated else {
+            let mut values: Vec<Expression> = sides
+                .into_iter()
+                .map(|(lhs, rhs, span)| self.resolve_binary(&OpBinary::Sub, lhs, rhs, span))
+                .collect();
+            let else_value = values.pop().expect("an else residual");
+            return Err(Box::new(Expression::If {
+                branches: conditions.into_iter().zip(values).collect(),
+                else_branch: Box::new(else_value),
+                span,
+            }));
+        };
+        let else_elements = restated.pop().expect("an else residual");
+        Ok(else_elements
+            .into_iter()
+            .enumerate()
+            .map(|(index, else_element)| Expression::If {
+                branches: conditions
+                    .iter()
+                    .cloned()
+                    .zip(restated.iter().map(|elements| elements[index].clone()))
+                    .collect(),
+                else_branch: Box::new(else_element),
+                span,
+            })
+            .collect())
     }
 
     fn owner_fields(&self, model: &ModelScope, owner: DefId) -> Option<Vec<(String, DefId)>> {
@@ -722,16 +857,19 @@ impl ExpressionRewriter for Resolver<'_, '_, '_> {
             Expression::FunctionCall {
                 name,
                 args,
-                is_constructor: true,
+                is_constructor,
                 span,
-            } => self
-                .resolve_constructor(&name, &args, span)
-                .unwrap_or(Expression::FunctionCall {
-                    name,
-                    args,
-                    is_constructor: true,
-                    span,
-                }),
+            } => if is_constructor {
+                self.resolve_constructor(&name, &args, span)
+            } else {
+                self.vectorized_record_call(&name, &args, span)
+            }
+            .unwrap_or(Expression::FunctionCall {
+                name,
+                args,
+                is_constructor,
+                span,
+            }),
             other => other,
         }
     }
@@ -969,6 +1107,26 @@ fn unary(op: &OpUnary, rhs: Expression, span: Span) -> Expression {
         rhs: Box::new(rhs),
         span,
     }
+}
+
+/// Whether every branch of an if-residual is an equation's `lhs - rhs`.
+fn is_conditional_equation(
+    branches: &[(Expression, Expression)],
+    else_branch: &Expression,
+) -> bool {
+    branches
+        .iter()
+        .map(|(_, value)| value)
+        .chain([else_branch])
+        .all(|value| {
+            matches!(
+                value,
+                Expression::Binary {
+                    op: OpBinary::Sub,
+                    ..
+                }
+            )
+        })
 }
 
 fn subtract(lhs: Expression, rhs: Expression, span: Span) -> Expression {

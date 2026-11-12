@@ -43,7 +43,7 @@ pub(crate) fn propagate_record_binding_to_fields(
     // MLS §7.2 record binding projection applies only to record components.
     // For non-record classes (model/block/connector), class modifications must
     // remain component modifiers and must not synthesize per-field bindings.
-    if nested_class.class_type != rumoca_core::ClassType::Record {
+    if !is_record_structured(tree, nested_class) {
         return Ok(IndexMap::default());
     }
 
@@ -140,6 +140,41 @@ pub(crate) fn propagate_record_binding_to_fields(
     }
     Ok(projected_keys)
 }
+
+/// Whether a component of `class` is a record value: a record, or a connector
+/// that only specializes records.
+///
+/// A short connector definition over a record, such as MSL
+/// `connector ComplexOutput = output Complex`, adds a restriction and a type
+/// prefix but no component (MLS §4.5.1), so its declaration equation
+/// `ComplexOutput y = expr` is the record equation `y = expr` (MLS §8.3.1).
+/// A connector that declares components of its own (`Pin`, with its flow
+/// variable) is not covered.
+fn is_record_structured(tree: &ast::ClassTree, class: &ast::ClassDef) -> bool {
+    let mut class = class;
+    // Bounded walk; a cyclic extends chain is rejected by resolve.
+    for _ in 0..MAX_RECORD_SPECIALIZATION_DEPTH {
+        match class.class_type {
+            rumoca_core::ClassType::Record => return true,
+            rumoca_core::ClassType::Connector
+                if class.components.is_empty() && class.extends.len() == 1 =>
+            {
+                let Some(base) = class.extends[0]
+                    .base_def_id
+                    .and_then(|def_id| tree.get_class_by_def_id(def_id))
+                else {
+                    return false;
+                };
+                class = base;
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// Longest chain of connector specializations followed to reach a record.
+const MAX_RECORD_SPECIALIZATION_DEPTH: usize = 16;
 
 fn should_preserve_same_type_alias_field_default(
     binding_expr: &ast::Expression,

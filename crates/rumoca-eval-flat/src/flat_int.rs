@@ -133,8 +133,26 @@ pub fn eval_size_call_i64(
 /// only such values may legally appear in a subscript that has to be folded at
 /// compile time.
 pub fn structural_integer_value(var: &flat::Variable, flat: &flat::Model) -> Option<i64> {
-    match (StructuralBindings { flat, depth: 0 }).value(var)? {
-        crate::constant::Value::Integer(value) => Some(value),
-        _ => None,
+    structural_integer_data(var, flat)?.as_integer()
+}
+
+/// Structural value of a flat `constant`/`parameter` whose compile-time-known
+/// binding is an Integer or an array (of any rank) of Integers.
+///
+/// An element of such an array is as evaluable as the array itself, so an
+/// index expression written over it (`z[idx[k]]`, MLS §10.5) folds like a
+/// scalar one. Any other value yields `None`.
+pub fn structural_integer_data(
+    var: &flat::Variable,
+    flat: &flat::Model,
+) -> Option<crate::constant::Value> {
+    fn integer_only(value: &crate::constant::Value) -> bool {
+        match value {
+            crate::constant::Value::Integer(_) => true,
+            crate::constant::Value::Array(elements) => elements.iter().all(integer_only),
+            _ => false,
+        }
     }
+    let value = (StructuralBindings { flat, depth: 0 }).value(var)?;
+    integer_only(&value).then_some(value)
 }

@@ -1,0 +1,13 @@
+//! base 0.1.0
+package 'ForParamRange'
+  model 'ForParamRange'
+    parameter Integer 'm' = 2;
+    Real 'x[1]'(start = 0, fixed = true);
+    Real 'x[2]'(start = 0, fixed = true);
+    Real 'x[3]'(start = 0, fixed = true);
+  equation
+    der('x[1]') = 1;
+    der('x[2]') = 2;
+    der('x[3]') = 0;
+  end 'ForParamRange';
+end 'ForParamRange';

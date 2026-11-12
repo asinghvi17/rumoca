@@ -1,0 +1,6 @@
+[rumoca] warning[WD001]: this array dimension is fixed at translation, so parameter s.n cannot be set (MLS 3.7 §10.1) (ArrayModified.mo:3:3)
+Compiling target 'base-modelica-scalar' for ArrayModified
+  Base Modelica (MCP-0031) with every array scalarized, from flat IR
+  wrote /home/juliahub/.factory/profiles/work/tmp/563cf07e-7a8f-45c5-bf9c-6bac5113c871.tmp/tmp.Fg7drBfanP/outs/ArrayModified.bmo
+
+Target sources compiled to: /home/juliahub/.factory/profiles/work/tmp/563cf07e-7a8f-45c5-bf9c-6bac5113c871.tmp/tmp.Fg7drBfanP/outs

@@ -1,0 +1,19 @@
+MTK 11.45.5
+
+## 1. parameter with tunable=false: kept in the parameter object, settable via remake
+  tunable_parameters: SymbolicUtils.BasicSymbolicImpl.var"typeof(BasicSymbolicImpl)"{SymReal}[tau, Initial(xˍt(t)), Initial(x(t))]   all: SymbolicUtils.BasicSymbolicImpl.var"typeof(BasicSymbolicImpl)"{SymReal}[tau, k]
+  p object: MTKParameters{Vector{Float64}, Vector{Float64}, Tuple{}, Tuple{Vector{Float64}}, Tuple{}, Tuple{}}([1.0], [0.0, 1.0], (), ([1.0],), (), ())
+  base [0.36788]  remake k=2: [0.13534]
+
+## 2. runtime-parameter array size is rejected
+  ERROR TypeError: non-boolean (Num) used in boolean context
+A symbolic expression appeared in a Boolean context. This error arises in situations where Julia expects a Bool, like 
+if boolean_condition		 use ifelse(boolean_condition, then branch, else branch)
+
+## 3. @mtkmodel @structural_parameters: array size fixed at construction
+  n=3: nunknowns=3  parameters=SymbolicUtils.BasicSymbolicImpl.var"typeof(BasicSymbolicImpl)"{SymReal}[a]
+  n=5: nunknowns=5  parameters=SymbolicUtils.BasicSymbolicImpl.var"typeof(BasicSymbolicImpl)"{SymReal}[a]
+
+## 4. @mtkmodel conditional component via structural parameter
+  useDamper=true: unknowns SymbolicUtils.BasicSymbolicImpl.var"typeof(BasicSymbolicImpl)"{SymReal}[y(t), dmp₊v(t)]
+  useDamper=false: unknowns SymbolicUtils.BasicSymbolicImpl.var"typeof(BasicSymbolicImpl)"{SymReal}[y(t)]

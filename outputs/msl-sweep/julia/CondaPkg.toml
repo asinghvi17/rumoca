@@ -1,0 +1,7 @@
+# BaseModelica.jl's ANTLR parser runs on the Python antlr4 runtime. Declare it
+# here too: it has dropped out of resolved environments before.
+[deps]
+python = "<3.14"
+
+[pip.deps]
+antlr4-python3-runtime = "==4.13.1"

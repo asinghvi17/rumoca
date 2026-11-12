@@ -104,3 +104,78 @@ fn base_modelica_quotes_generated_comprehension_binders() {
     .expect("comprehension renders");
     assert_eq!(rendered, "{'$parentIndex1' for '$parentIndex1' in 1:2}");
 }
+
+/// MCP-0031 subscripts only component references and parenthesized
+/// expressions, so a slice of `fill` is the `fill` it denotes: a literal
+/// range keeps its length, `:` the dimension, a literal index drops it (MSL
+/// Fluid media: `Xi(start = fill(1 / nX, nX)[1:0])`).
+#[test]
+fn base_modelica_folds_a_slice_of_fill() {
+    let integer = |value| rumoca_core::Expression::Literal {
+        value: rumoca_core::Literal::Integer(value),
+        span: rumoca_core::Span::DUMMY,
+    };
+    let n = rumoca_core::Expression::VarRef {
+        name: rumoca_core::Reference::generated("n"),
+        subscripts: Vec::new(),
+        span: rumoca_core::Span::DUMMY,
+    };
+    let range = |start, end| rumoca_core::Subscript::Expr {
+        expr: Box::new(rumoca_core::Expression::Range {
+            start: Box::new(integer(start)),
+            step: None,
+            end: Box::new(integer(end)),
+            span: rumoca_core::Span::DUMMY,
+        }),
+        span: rumoca_core::Span::DUMMY,
+    };
+    let slice = |subscripts| rumoca_core::Expression::Index {
+        base: Box::new(rumoca_core::Expression::BuiltinCall {
+            function: rumoca_core::BuiltinFunction::Fill,
+            args: vec![integer(7), n.clone(), n.clone()],
+            span: rumoca_core::Span::DUMMY,
+        }),
+        subscripts,
+        span: rumoca_core::Span::DUMMY,
+    };
+    let cases = [
+        (
+            slice(vec![
+                range(1, 0),
+                rumoca_core::Subscript::Colon {
+                    span: rumoca_core::Span::DUMMY,
+                },
+            ]),
+            "fill(7, 0, 'n')",
+        ),
+        (
+            slice(vec![
+                range(2, 4),
+                rumoca_core::Subscript::index(1, rumoca_core::Span::DUMMY),
+            ]),
+            "fill(7, 3)",
+        ),
+        (
+            slice(vec![
+                rumoca_core::Subscript::index(1, rumoca_core::Span::DUMMY),
+                rumoca_core::Subscript::index(2, rumoca_core::Span::DUMMY),
+            ]),
+            "7",
+        ),
+        (
+            slice(vec![rumoca_core::Subscript::index(
+                2,
+                rumoca_core::Span::DUMMY,
+            )]),
+            "fill(7, 'n')",
+        ),
+    ];
+    for (expr, expected) in cases {
+        let rendered = render(
+            r#"{{ render_expr(e, {"base_modelica": true, "modelica_builtins": true, "sanitize_dots": false, "quote_names": ["n"]}) }}"#,
+            minijinja::context! { e => Value::from_serialize(&expr) },
+        )
+        .expect("slice renders");
+        assert_eq!(rendered, expected);
+    }
+}

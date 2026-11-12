@@ -42,6 +42,82 @@ pub(super) fn register(env: &mut minijinja::Environment<'static>) {
     );
 }
 
+/// `fill(v, d1, ..., dn)[s1, ..., sk]` as the `fill` it denotes, when every
+/// subscript is a literal index (the dimension goes), `:` (it stays) or a
+/// literal range (its length); dimensions past `sk` stay. MCP-0031
+/// subscripts only component references and parenthesized expressions, and
+/// Flat writes this for the start of a zero-size slice of a filled default
+/// (`fill(1 / nX, nX)[1:0]`, every Fluid medium's `Xi`). None for any other
+/// subscripted expression.
+pub(super) fn fold_fill_slice(index: &Value) -> Option<Value> {
+    let index = serde_json::to_value(index).ok()?;
+    let fill = index["base"].get("BuiltinCall")?;
+    if fill["function"].as_str() != Some("Fill") {
+        return None;
+    }
+    let args = fill["args"].as_array()?;
+    let subscripts = index["subscripts"].as_array()?;
+    let (value, dims) = args.split_first()?;
+    if subscripts.len() > dims.len() {
+        return None;
+    }
+    // Dimensions past the last subscript are kept whole (MLS §10.5).
+    let mut kept = Vec::new();
+    for (position, dim) in dims.iter().enumerate() {
+        let extent = match subscripts.get(position) {
+            Some(subscript) => slice_extent(subscript)?,
+            None => Extent::Whole,
+        };
+        match extent {
+            Extent::Dropped => {}
+            Extent::Whole => kept.push(dim.clone()),
+            Extent::Literal(extent) => kept.push(serde_json::json!({
+                "Literal": { "value": { "Integer": extent } }
+            })),
+        }
+    }
+    if kept.is_empty() {
+        return Some(Value::from_serialize(value));
+    }
+    let mut folded = fill.clone();
+    folded["args"] = std::iter::once(value.clone()).chain(kept).collect();
+    Some(Value::from_serialize(
+        serde_json::json!({ "BuiltinCall": folded }),
+    ))
+}
+
+enum Extent {
+    Dropped,
+    Whole,
+    Literal(i64),
+}
+
+/// What subscript `sub` leaves of the dimension it selects from.
+fn slice_extent(sub: &serde_json::Value) -> Option<Extent> {
+    if sub.get("Colon").is_some() || sub.as_str() == Some("Colon") {
+        return Some(Extent::Whole);
+    }
+    if sub.get("Index").is_some() {
+        return Some(Extent::Dropped);
+    }
+    let expr = &sub.get("Expr")?["expr"];
+    if integer_literal(expr).is_some() {
+        return Some(Extent::Dropped);
+    }
+    let range = expr.get("Range")?;
+    let start = integer_literal(&range["start"])?;
+    let end = integer_literal(&range["end"])?;
+    let step = match range.get("step") {
+        Some(step) if !step.is_null() => integer_literal(step).filter(|step| *step != 0)?,
+        _ => 1,
+    };
+    Some(Extent::Literal(((end - start) / step + 1).max(0)))
+}
+
+fn integer_literal(expr: &serde_json::Value) -> Option<i64> {
+    expr.get("Literal")?["value"]["Integer"].as_i64()
+}
+
 /// Render a statement list, one statement per line.
 pub(crate) fn render_statements(stmts: &Value, cfg: &ExprConfig, indent: &str) -> RenderResult {
     let len = stmts

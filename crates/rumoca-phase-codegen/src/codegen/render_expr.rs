@@ -1240,6 +1240,11 @@ fn try_unroll_c_comprehension_elements(
 /// since they access via pointer/array (unlike VarRef underscore subscripts
 /// which are 1-based naming).
 fn render_index(index: &Value, cfg: &ExprConfig) -> RenderResult {
+    if cfg.base_modelica
+        && let Some(folded) = super::base_modelica::fold_fill_slice(index)
+    {
+        return render_expression(&folded, cfg);
+    }
     let base = get_field(index, "base")
         .map_err(|_| render_err("Index missing 'base' field"))
         .and_then(|v| render_expression(&v, cfg))?;

@@ -1,0 +1,9 @@
+//! base 0.1.0
+package 'TunableOnly'
+  model 'TunableOnly'
+    parameter Real 'tau' = 1;
+    Real 'x'(start = 1, fixed = true);
+  equation
+    der('x') = (-('x' / 'tau'));
+  end 'TunableOnly';
+end 'TunableOnly';

@@ -1,0 +1,6 @@
+[rumoca] warning[WD001]: this declaration has annotation(Evaluate = true), so parameter p is evaluated at translation and cannot be set (MLS 3.7 §18.3) (EvaluateAnn.mo:2:13)
+Compiling target 'base-modelica' for EvaluateAnn
+  Base Modelica (MCP-0031) interchange output from flat IR
+  wrote <tmp>/out/EvaluateAnn.bmo
+
+Target sources compiled to: <tmp>/out

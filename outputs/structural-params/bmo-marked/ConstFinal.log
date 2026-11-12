@@ -1,0 +1,5 @@
+Compiling target 'base-modelica' for ConstFinal
+  Base Modelica (MCP-0031) interchange output from flat IR
+  wrote <tmp>/out/ConstFinal.bmo
+
+Target sources compiled to: <tmp>/out

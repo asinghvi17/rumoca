@@ -1,0 +1,5 @@
+Compiling target 'base-modelica' for ParamSelect
+  Base Modelica (MCP-0031) interchange output from flat IR
+  wrote <tmp>/out/ParamSelect.bmo
+
+Target sources compiled to: <tmp>/out

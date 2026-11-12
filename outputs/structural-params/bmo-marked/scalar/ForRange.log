@@ -1,0 +1,5 @@
+Compiling target 'base-modelica-scalar' for ForRange
+  Base Modelica (MCP-0031) with every array scalarized, from flat IR
+  wrote <tmp>/outs/ForRange.bmo
+
+Target sources compiled to: <tmp>/outs

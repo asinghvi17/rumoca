@@ -1,0 +1,5 @@
+Compiling target 'base-modelica' for TunableOnly
+  Base Modelica (MCP-0031) interchange output from flat IR
+  wrote <tmp>/out/TunableOnly.bmo
+
+Target sources compiled to: <tmp>/out

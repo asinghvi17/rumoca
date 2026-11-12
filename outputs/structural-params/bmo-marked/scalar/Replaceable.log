@@ -1,0 +1,5 @@
+Compiling target 'base-modelica-scalar' for Replaceable
+  Base Modelica (MCP-0031) with every array scalarized, from flat IR
+  wrote <tmp>/outs/Replaceable.bmo
+
+Target sources compiled to: <tmp>/outs

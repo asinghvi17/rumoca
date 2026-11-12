@@ -1,0 +1,9 @@
+//! base 0.1.0
+package 'CondCompOff'
+  model 'CondCompOff'
+    parameter Boolean 'useDamper' = false annotation(Evaluate = true);
+    Real 'y'(start = 0, fixed = true);
+  equation
+    der('y') = 1;
+  end 'CondCompOff';
+end 'CondCompOff';

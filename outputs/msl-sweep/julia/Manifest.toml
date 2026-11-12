@@ -170,17 +170,11 @@ version = "1.11.0"
 
 [[deps.BaseModelica]]
 deps = ["CondaPkg", "DiffEqBase", "MLStyle", "ModelingToolkit", "ModelingToolkitBase", "ParserCombinator", "PrecompileTools", "PythonCall", "SciMLBase", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics"]
-git-tree-sha1 = "743cee6488bc68261b3691a3db5e3c6648069fe0"
+git-tree-sha1 = "697e671e683af91862773a00e8565e03ce96d434"
 repo-rev = "bm-events-and-parser-fixes"
 repo-url = "https://github.com/asinghvi17/BaseModelica.jl"
 uuid = "a17d5099-185d-4ff5-b5d3-51aa4569e56d"
-version = "1.10.1"
-
-    [deps.BaseModelica.extensions]
-    BaseModelicaSynchToolkitExt = "SynchToolkit"
-
-    [deps.BaseModelica.weakdeps]
-    SynchToolkit = "f500ffa8-9682-42ac-8d34-0ca7926c2e94"
+version = "1.11.0"
 
 [[deps.Bijections]]
 git-tree-sha1 = "a2d308fcd4c2fb90e943cf9cd2fbfa9c32b69733"
@@ -523,7 +517,7 @@ version = "1.7.0"
 [[deps.DyadCompilerPasses]]
 deps = ["DataStructures", "DocStringExtensions", "Graphs", "LinearAlgebra", "ModelingToolkit", "ModelingToolkitBase", "Moshi", "PreallocationTools", "Random", "Setfield", "SparseArrays", "StaticArrays", "SymbolicUtils", "Symbolics"]
 git-tree-sha1 = "8eb08161778a852ed2ea957e15fd4a834521228d"
-registries = ["DyadRegistry", "DyadRegistry"]
+registries = "DyadRegistry"
 uuid = "7ad99603-9b08-4a9b-96cd-82ecdbcce176"
 version = "0.2.7"
 
@@ -538,7 +532,7 @@ version = "0.2.7"
 [[deps.DyadInterface]]
 deps = ["ADTypes", "Base64", "CommonSolve", "DataFrames", "DyadCompilerPasses", "EnumX", "Logging", "ModelingToolkit", "Moshi", "NonlinearSolve", "OrdinaryDiffEqBDF", "OrdinaryDiffEqCore", "OrdinaryDiffEqDefault", "OrdinaryDiffEqRosenbrock", "OrdinaryDiffEqTsit5", "PrecompileTools", "Preferences", "RecipesBase", "RelocatableFolders", "RuntimeGeneratedFunctions", "SciMLBase", "SciMLLogging", "SciMLStructures", "Serialization", "Setfield", "StructTypes", "SymbolicIndexingInterface", "Symbolics", "UUIDs"]
 git-tree-sha1 = "1c4d6f1a1c7adb67ac67568b21254c13c5530f98"
-registries = ["DyadRegistry", "DyadRegistry"]
+registries = "DyadRegistry"
 uuid = "99806f68-afab-45ca-9d8c-ceff6bc61f54"
 version = "7.3.0"
 

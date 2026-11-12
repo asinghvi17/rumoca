@@ -261,6 +261,45 @@ end DeadArmShapeError;
     );
 }
 
+/// The extent half of the same rule. An unexecuted arm's extents may read the
+/// very value whose specialization makes it unreachable: this is MSL
+/// `Polyphase.Functions.symmetricOrientationMatrix`, whose `mBase == 2` arm
+/// assigns a `[2, mBase]` value to a `[mBase, mBase]` target. In the generic
+/// function both are run-time sizes (MLS §10.6), so for `m = 3` the mismatch is
+/// the run-time check of an arm that never runs, not an ill-formed statement.
+/// Only a rank mismatch, which no value can change, is still rejected there.
+#[test]
+fn a_dead_arm_extent_the_specialization_contradicts_stays_accepted() {
+    let source = r#"
+within;
+function orientationMatrix
+  input Integer m;
+  output Real oM[m, m];
+protected
+  Integer mBase = m;
+  Real o[m] = {1.0*k for k in 1:m};
+algorithm
+  oM := zeros(m, m);
+  if mBase == 2 then
+    oM[1:mBase, 1:mBase] := {o[1:mBase], -o[1:mBase]};
+  else
+    for j in 1:mBase loop
+      oM[j, 1:mBase] := j*o[1:mBase];
+    end for;
+  end if;
+end orientationMatrix;
+model DeadArmExtent
+  Real a[3, 3];
+equation
+  a = orientationMatrix(3);
+end DeadArmExtent;
+"#;
+    let report = evaluate(source, "DeadArmExtent", "DeadArmExtent.mo");
+    close(algebraic(&report, "a[1,1]"), 1.0, "a[1,1]");
+    close(algebraic(&report, "a[2,3]"), 6.0, "a[2,3]");
+    close(algebraic(&report, "a[3,2]"), 6.0, "a[3,2]");
+}
+
 /// The other side of the same rule: an unexecuted branch owes no *proof*, only
 /// well-formedness. Its callee is never specialized — `unprovable` has an
 /// extent this scope cannot settle and would be rejected if it were — so the

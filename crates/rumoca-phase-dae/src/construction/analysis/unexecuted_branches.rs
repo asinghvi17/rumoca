@@ -37,6 +37,15 @@ use super::*;
 ///   declares, and no function is constructed from this branch.
 /// * every statement form other than an assignment, plus the nested bodies of
 ///   loops and conditionals, which are walked for their assignments only.
+/// * an *extent* mismatch (equal rank, different sizes) inside a conditional
+///   arm. The arm's extents may read the very values whose specialization
+///   makes the arm unreachable: MSL `symmetricOrientationMatrix(3)` keeps
+///   `oM[1:mBase, 1:mBase] := {o[1:mBase], -o[1:mBase]}` under
+///   `if mBase == 2`, a [2, 3] value for a [3, 3] target only because
+///   `mBase = 3`. In the generic function both extents are run-time sizes
+///   (MLS §10.6), so the mismatch is the run-time check of an arm that never
+///   runs, not an ill-formed statement. A *rank* mismatch does not depend on
+///   any value and is still rejected there.
 ///
 /// Both exemptions are one-sided: they can only fail to report, never accept a
 /// mismatch this scope proved. A branch whose two sides are both proven is
@@ -58,12 +67,12 @@ pub(super) fn check_unexecuted_branches(
         if selected == Some(ordinal) {
             continue;
         }
-        check_statements(&block.stmts, context, context.shapes)?;
+        check_statements(&block.stmts, context, context.shapes, Extents::Unchecked)?;
     }
     if selected.is_some()
         && let Some(fallback) = fallback
     {
-        check_statements(fallback, context, context.shapes)?;
+        check_statements(fallback, context, context.shapes, Extents::Unchecked)?;
     }
     Ok(())
 }
@@ -79,16 +88,26 @@ pub(super) fn check_function_assignment_shapes(
     statements: &[rumoca_core::Statement],
     context: FunctionValidationContext<'_>,
 ) -> Result<(), ToDaeError> {
-    check_statements(statements, context, context.shapes)
+    check_statements(statements, context, context.shapes, Extents::Checked)
+}
+
+/// Whether an assignment's extents, and not only its rank, must agree. They
+/// are checked on the path every specialization runs and left to the run time
+/// inside a conditional arm, whose guard the proven values may contradict.
+#[derive(Clone, Copy)]
+enum Extents {
+    Checked,
+    Unchecked,
 }
 
 fn check_statements(
     statements: &[rumoca_core::Statement],
     context: FunctionValidationContext<'_>,
     shapes: &ShapeEnvironment,
+    extents: Extents,
 ) -> Result<(), ToDaeError> {
     for statement in statements {
-        check_statement(statement, context, shapes)?;
+        check_statement(statement, context, shapes, extents)?;
     }
     Ok(())
 }
@@ -97,10 +116,11 @@ fn check_statement(
     statement: &rumoca_core::Statement,
     context: FunctionValidationContext<'_>,
     shapes: &ShapeEnvironment,
+    extents: Extents,
 ) -> Result<(), ToDaeError> {
     match statement {
         rumoca_core::Statement::Assignment { comp, value, span } => {
-            check_assignment(comp, value, *span, context, shapes)
+            check_assignment(comp, value, *span, context, shapes, extents)
         }
         rumoca_core::Statement::For {
             indices, equations, ..
@@ -112,10 +132,10 @@ fn check_statement(
             for index in indices {
                 loop_shapes.insert(VarName::new(&index.ident), Vec::new());
             }
-            check_statements(equations, context, &loop_shapes)
+            check_statements(equations, context, &loop_shapes, extents)
         }
         rumoca_core::Statement::While { block, .. } => {
-            check_statements(&block.stmts, context, shapes)
+            check_statements(&block.stmts, context, shapes, Extents::Unchecked)
         }
         rumoca_core::Statement::If {
             cond_blocks,
@@ -123,13 +143,18 @@ fn check_statement(
             ..
         } => {
             for block in cond_blocks {
-                check_statements(&block.stmts, context, shapes)?;
+                check_statements(&block.stmts, context, shapes, Extents::Unchecked)?;
             }
-            check_statements(else_block.as_deref().unwrap_or_default(), context, shapes)
+            check_statements(
+                else_block.as_deref().unwrap_or_default(),
+                context,
+                shapes,
+                Extents::Unchecked,
+            )
         }
         rumoca_core::Statement::When { blocks, .. } => {
             for block in blocks {
-                check_statements(&block.stmts, context, shapes)?;
+                check_statements(&block.stmts, context, shapes, Extents::Unchecked)?;
             }
             Ok(())
         }
@@ -148,6 +173,7 @@ fn check_assignment(
     span: Span,
     context: FunctionValidationContext<'_>,
     shapes: &ShapeEnvironment,
+    extents: Extents,
 ) -> Result<(), ToDaeError> {
     let (Some(target), Some(found)) = (
         call_free_target_shape(component, shapes),
@@ -158,6 +184,9 @@ fn check_assignment(
     // MLS §10.6.13 lets a scalar right-hand side fill an array target, which is
     // the one shape relation an assignment admits beyond equality.
     if target == found || found.is_empty() {
+        return Ok(());
+    }
+    if matches!(extents, Extents::Unchecked) && target.len() == found.len() {
         return Ok(());
     }
     Err(ToDaeError::unsupported_flat(

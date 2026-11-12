@@ -925,10 +925,7 @@ fn render_literal(literal: &Value, cfg: &ExprConfig) -> RenderResult {
         if cfg.modelica_builtins
             && let Some(text) = s.as_str()
         {
-            return Ok(format!(
-                "\"{}\"",
-                rumoca_core::escape_modelica_string(text)
-            ));
+            return Ok(format!("\"{}\"", rumoca_core::escape_modelica_string(text)));
         }
         return Ok(format!("\"{}\"", s));
     }

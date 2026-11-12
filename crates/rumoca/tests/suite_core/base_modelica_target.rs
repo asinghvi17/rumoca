@@ -568,3 +568,25 @@ end FunctionDims;";
     );
     recompiles(&out, "FunctionDims");
 }
+
+/// The MLS §3.7.5 event operator `sample(start, interval)` is a Base Modelica
+/// builtin and is written as is in a `when` condition (MSL Blocks.Discrete,
+/// SampleTrigger).
+#[test]
+fn event_sample_is_kept_in_when_conditions() {
+    let source = "model EventSample
+  Integer n(start = 0, fixed = true);
+equation
+  when sample(0.05, 0.1) then
+    n = pre(n) + 1;
+  end when;
+end EventSample;";
+    for target in ["base-modelica", "base-modelica-scalar"] {
+        let out = render_ok(source, "EventSample", target);
+        assert_contains_all(
+            &out,
+            &["    when sample(0.05, 0.1) then\n      'n' = (pre('n') + 1);\n    end when;"],
+        );
+        recompiles(&out, "EventSample");
+    }
+}

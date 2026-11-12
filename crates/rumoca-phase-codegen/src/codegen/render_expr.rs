@@ -507,6 +507,11 @@ fn render_builtin(builtin: &Value, cfg: &ExprConfig) -> RenderResult {
             let inner = required_arg(&args_val, idx, &format!("BuiltinCall {func_name}"))?;
             return render_expression(&inner, cfg);
         }
+        // MLS §3.7.5 event `sample(start, interval)` is a Base Modelica
+        // builtin (MCP-0031 functions.md) and renders as written. The clocked
+        // `sample(u)` / `sample(u, clock)` still needs its clock schedule; a
+        // `Clock(...)` argument refuses through the `Clock` arm below.
+        "Sample" if cfg.base_modelica && get_field(builtin, "args")?.len() == Some(2) => {}
         "Sample" => {
             return Err(render_err(
                 "BuiltinCall Sample must be lowered into clock/event metadata and ordinary equations before template rendering",

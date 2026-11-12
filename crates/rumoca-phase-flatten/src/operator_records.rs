@@ -27,6 +27,7 @@
 
 mod arrays;
 mod catalog;
+mod vectorized;
 
 use rumoca_core::{
     DefId, Expression, ExpressionRewriter, OpBinary, OpUnary, Span, StatementRewriter,
@@ -43,9 +44,10 @@ use catalog::{OperandType, OperatorCatalog, OperatorFunction};
 pub(crate) fn resolve_operator_overloads(
     flat: &mut flat::Model,
     classes: &ast::ClassDefIndex<'_>,
+    integer_parameters: &dyn Fn(&str) -> Option<i64>,
 ) -> Result<(), FlattenError> {
     let mut catalog = OperatorCatalog::new(classes);
-    let scope = ModelScope::from_model(flat);
+    let scope = ModelScope::from_model(flat, integer_parameters);
     let mut resolver = Resolver {
         catalog: &mut catalog,
         scope: &scope,
@@ -147,19 +149,35 @@ trait Scope {
         catalog: &OperatorCatalog<'_>,
         name: &str,
     ) -> Option<(OperandType, usize)>;
+    /// The extent of the vector variable `name`.
+    fn vector_extent(&self, _name: &str) -> Option<i64> {
+        None
+    }
+    /// The translation-time value of the Integer variable `name`.
+    fn integer_value(&self, _name: &str) -> Option<i64> {
+        None
+    }
 }
 
-struct ModelScope {
+struct ModelScope<'params> {
     records: rustc_hash::FxHashMap<String, DefId>,
     record_arrays: rustc_hash::FxHashMap<String, (DefId, Vec<rumoca_core::ComponentReference>)>,
     /// Every declared variable's numeric scalar type (`None` when it is not
     /// Real or Integer) and rank.
     variables: rustc_hash::FxHashMap<String, (Option<OperandType>, usize)>,
     record_types: rustc_hash::FxHashMap<DefId, Vec<(String, DefId)>>,
+    /// The extent of every vector variable.
+    vector_extents: rustc_hash::FxHashMap<String, i64>,
+    /// The evaluated Integer parameter of a flat name, for the extent of a
+    /// `fill` argument.
+    integer_values: &'params dyn Fn(&str) -> Option<i64>,
 }
 
-impl ModelScope {
-    fn from_model(flat: &flat::Model) -> Self {
+impl<'params> ModelScope<'params> {
+    fn from_model(
+        flat: &flat::Model,
+        integer_values: &'params dyn Fn(&str) -> Option<i64>,
+    ) -> Self {
         Self {
             record_arrays: record_arrays(flat),
             records: flat
@@ -178,6 +196,15 @@ impl ModelScope {
                     )
                 })
                 .collect(),
+            vector_extents: flat
+                .variables
+                .iter()
+                .filter_map(|(name, variable)| match variable.dims.as_slice() {
+                    [extent] => Some((name.as_str().to_string(), *extent)),
+                    _ => None,
+                })
+                .collect(),
+            integer_values,
             record_types: flat
                 .record_types
                 .iter()
@@ -196,7 +223,7 @@ impl ModelScope {
     }
 }
 
-impl ModelScope {
+impl ModelScope<'_> {
     /// The field names and definitions of record class `def_id`.
     fn record_fields(&self, def_id: DefId) -> Option<Vec<(String, DefId)>> {
         self.record_types.get(&def_id).cloned()
@@ -208,7 +235,7 @@ impl ModelScope {
     }
 }
 
-impl Scope for ModelScope {
+impl Scope for ModelScope<'_> {
     fn declares(&self, name: &str) -> bool {
         self.variables.contains_key(name)
             || self.records.contains_key(name)
@@ -239,6 +266,14 @@ impl Scope for ModelScope {
     ) -> Option<(OperandType, usize)> {
         let (scalar, rank) = self.variables.get(name)?;
         Some(((*scalar)?, *rank))
+    }
+
+    fn vector_extent(&self, name: &str) -> Option<i64> {
+        self.vector_extents.get(name).copied()
+    }
+
+    fn integer_value(&self, name: &str) -> Option<i64> {
+        (self.integer_values)(name)
     }
 
     fn record_array(&self, name: &str) -> Option<(DefId, &[rumoca_core::ComponentReference])> {
@@ -722,16 +757,19 @@ impl ExpressionRewriter for Resolver<'_, '_, '_> {
             Expression::FunctionCall {
                 name,
                 args,
-                is_constructor: true,
+                is_constructor,
                 span,
-            } => self
-                .resolve_constructor(&name, &args, span)
-                .unwrap_or(Expression::FunctionCall {
-                    name,
-                    args,
-                    is_constructor: true,
-                    span,
-                }),
+            } => if is_constructor {
+                self.resolve_constructor(&name, &args, span)
+            } else {
+                self.vectorized_record_call(&name, &args, span)
+            }
+            .unwrap_or(Expression::FunctionCall {
+                name,
+                args,
+                is_constructor,
+                span,
+            }),
             other => other,
         }
     }

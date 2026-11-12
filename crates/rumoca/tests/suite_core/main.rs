@@ -384,6 +384,7 @@ mod trial_residual_scale;
 mod type_attribute_inheritance;
 mod variability_classes;
 mod vectorized_constant_calls;
+mod vectorized_record_calls;
 mod verification_surface_wiring;
 mod when_activation_settled_reads;
 mod when_current_alias;

@@ -1158,7 +1158,9 @@ fn collect_flat_functions(
     class_index: &ast::ClassDefIndex<'_>,
     model_name: &str,
 ) -> Result<(), FlattenError> {
-    crate::operator_records::resolve_operator_overloads(flat, class_index)?;
+    crate::operator_records::resolve_operator_overloads(flat, class_index, &|name| {
+        ctx.get_integer_param(name)
+    })?;
     seed_flat_functions_from_context(ctx, flat);
     functions::collect_functions(flat, overlay, tree, class_index, Some(model_name))?;
     rewrite_function_extends_aliases_in_flat_functions(flat, tree, class_index)?;
@@ -1166,7 +1168,9 @@ fn collect_flat_functions(
     // alternation reaches a fixed point.
     loop {
         let collected = flat.functions.len();
-        crate::operator_records::resolve_operator_overloads(flat, class_index)?;
+        crate::operator_records::resolve_operator_overloads(flat, class_index, &|name| {
+            ctx.get_integer_param(name)
+        })?;
         functions::collect_functions(flat, overlay, tree, class_index, Some(model_name))?;
         if flat.functions.len() == collected {
             return Ok(());

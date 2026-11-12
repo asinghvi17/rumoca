@@ -1155,7 +1155,12 @@ fn render_array_comprehension(array_comp: &Value, cfg: &ExprConfig) -> RenderRes
         let range = get_field(&index, "range")
             .map_err(|_| render_err("ArrayComprehension index missing 'range' field"))
             .and_then(|v| render_expression(&v, cfg))?;
-        let name = if cfg.quote_dotted && name.contains('$') && !name.starts_with('\'') {
+        // A generated binder (`$parentIndex1`) is not a legal IDENT; its
+        // references in the body are quoted the same way.
+        let name = if (cfg.quote_dotted || cfg.base_modelica)
+            && name.contains('$')
+            && !name.starts_with('\'')
+        {
             format!("'{name}'")
         } else {
             name.to_string()

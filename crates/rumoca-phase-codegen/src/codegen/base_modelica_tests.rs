@@ -66,3 +66,41 @@ fn base_modelica_expressions_quote_declared_names() {
     .expect("expression renders");
     assert_eq!(rendered, "'Pkg.f'('x', time, i, (-0.5))");
 }
+
+/// A generated comprehension binder (`$parentIndex1`, from an `each`
+/// modifier on an array of components) is not a legal IDENT, so the binder
+/// is quoted like its references in the body (MSL MultiBody `world`
+/// arrow and label cylinders).
+#[test]
+fn base_modelica_quotes_generated_comprehension_binders() {
+    let index = rumoca_core::Expression::VarRef {
+        name: rumoca_core::Reference::generated("$parentIndex1"),
+        subscripts: Vec::new(),
+        span: rumoca_core::Span::DUMMY,
+    };
+    let integer = |value| rumoca_core::Expression::Literal {
+        value: rumoca_core::Literal::Integer(value),
+        span: rumoca_core::Span::DUMMY,
+    };
+    let comprehension = rumoca_core::Expression::ArrayComprehension {
+        expr: Box::new(index),
+        indices: vec![rumoca_core::ComprehensionIndex {
+            binder: rumoca_core::IndexBinderProvenance::Generated,
+            name: "$parentIndex1".to_string(),
+            range: rumoca_core::Expression::Range {
+                start: Box::new(integer(1)),
+                step: None,
+                end: Box::new(integer(2)),
+                span: rumoca_core::Span::DUMMY,
+            },
+        }],
+        filter: None,
+        span: rumoca_core::Span::DUMMY,
+    };
+    let rendered = render(
+        r#"{{ render_expr(e, {"base_modelica": true, "sanitize_dots": false, "quote_names": []}) }}"#,
+        minijinja::context! { e => Value::from_serialize(&comprehension) },
+    )
+    .expect("comprehension renders");
+    assert_eq!(rendered, "{'$parentIndex1' for '$parentIndex1' in 1:2}");
+}

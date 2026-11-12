@@ -102,9 +102,9 @@
 {%- macro attrs(var, index=none) -%}
 {%- set ns = namespace(parts=[]) -%}
 {%- set skip_start = value_is_binding(var) == "yes" -%}
-{%- if var.quantity %}{% set ns.parts = ns.parts + ['quantity = "' ~ var.quantity ~ '"'] %}{% endif -%}
-{%- if var.unit %}{% set ns.parts = ns.parts + ['unit = "' ~ var.unit ~ '"'] %}{% endif -%}
-{%- if var.display_unit %}{% set ns.parts = ns.parts + ['displayUnit = "' ~ var.display_unit ~ '"'] %}{% endif -%}
+{%- if var.quantity %}{% set ns.parts = ns.parts + ['quantity = ' ~ (var.quantity | modelica_string)] %}{% endif -%}
+{%- if var.unit %}{% set ns.parts = ns.parts + ['unit = ' ~ (var.unit | modelica_string)] %}{% endif -%}
+{%- if var.display_unit %}{% set ns.parts = ns.parts + ['displayUnit = ' ~ (var.display_unit | modelica_string)] %}{% endif -%}
 {%- for key in ["min", "max", "start", "nominal"] -%}
 {%- if var[key] is not none and not (key == "start" and skip_start) -%}
 {%- if index is none -%}
@@ -137,7 +137,7 @@
 {%- endmacro -%}
 
 {%- macro description(text) -%}
-{%- if text %} "{{ text }}"{% endif -%}
+{%- if text %} {{ text | modelica_string }}{% endif -%}
 {%- endmacro -%}
 
 {#- A parameter translation evaluated (one a structural use fixed, one its

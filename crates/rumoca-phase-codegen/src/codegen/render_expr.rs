@@ -920,6 +920,16 @@ fn render_literal(literal: &Value, cfg: &ExprConfig) -> RenderResult {
     }
     if let Ok(s) = get_field(&literal_value, "String") {
         let s = spanned_literal_value(s);
+        // The literal holds decoded contents; Modelica output re-escapes them
+        // (`"Choose \"Y\""` must not come out as `"Choose "Y""`).
+        if cfg.modelica_builtins
+            && let Some(text) = s.as_str()
+        {
+            return Ok(format!(
+                "\"{}\"",
+                rumoca_core::escape_modelica_string(text)
+            ));
+        }
         return Ok(format!("\"{}\"", s));
     }
     Err(render_err(format!(

@@ -626,3 +626,31 @@ end StringConv;";
         recompiles(&out, "StringConv");
     }
 }
+
+/// Descriptions and string literals hold decoded text, so a quote or a
+/// backslash in them is escaped again on output: `"Choose \"Y\""` must not
+/// come out as `"Choose "Y""`, which does not parse (MSL Machines
+/// TerminalBox).
+#[test]
+fn quotes_in_descriptions_and_string_literals_are_escaped() {
+    let source = r#"model Escaped "A \"quoted\" model"
+  parameter String connection = "Y \"star\" \\ D" "Choose \"Y\" for star";
+  Real x(start = 1, fixed = true) "back\\slash";
+equation
+  der(x) = -x;
+  assert(x > -1, "x is \"negative\"");
+end Escaped;"#;
+    for target in ["base-modelica", "base-modelica-scalar"] {
+        let out = render_ok(source, "Escaped", target);
+        assert_contains_all(
+            &out,
+            &[
+                r#"  model 'Escaped' "A \"quoted\" model""#,
+                r#"    parameter String 'connection' = "Y \"star\" \\ D" "Choose \"Y\" for star";"#,
+                r#"    Real 'x'(start = 1, fixed = true) "back\\slash";"#,
+                r#"assert(('x' > (-1)), "x is \"negative\"");"#,
+            ],
+        );
+        recompiles(&out, "Escaped");
+    }
+}

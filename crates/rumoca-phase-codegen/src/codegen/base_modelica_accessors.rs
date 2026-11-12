@@ -1,15 +1,18 @@
-//! Member access on a record-valued call for the Base Modelica targets.
+//! Member access on a record-valued expression for the Base Modelica targets.
 //!
 //! Flat reads a member straight off a call that returns a record
 //! (`Frames.nullRotation().T`, `Complex.'*'.multiply(a, b).re`, and the field
-//! equations `record_field_equations` writes for `v = f(...)`). Neither
-//! MCP-0031 nor MLS 3.6 has that form: a `primary` is a component reference
-//! optionally followed by call arguments, with nothing after the call (MLS
-//! 3.7-dev only adds `(f(x)).re`, which MCP-0031 does not take over), and
-//! "a member of a record can only be accessed through an instance of the
-//! record" (MCP-0031 differences.md).
+//! equations `record_field_equations` writes for `v = f(...)`), or off a
+//! record-valued `if` expression (`(if c then f(a) else Complex(0, 0)).re`).
+//! Neither MCP-0031 nor MLS 3.6 has that form: a `primary` is a component
+//! reference optionally followed by call arguments, with nothing after the
+//! call (MLS 3.7-dev only adds `(f(x)).re`, which MCP-0031 does not take
+//! over), and "a member of a record can only be accessed through an instance
+//! of the record" (MCP-0031 differences.md).
 //!
-//! So each (function, member path) pair read this way gets a generated
+//! A read off an `if` moves into each arm, and a read off a record
+//! constructor call is the argument for that field (`lower_member_read`).
+//! Each (function, member path) pair read off any other call gets a generated
 //! accessor function with the function's inputs that stores the call in a
 //! record local and returns the member:
 //!
@@ -33,6 +36,7 @@
 //! evaluation exactly where it was.
 
 use super::base_modelica_records::{Layout, expand};
+use super::render_expr::get_field;
 use crate::errors::render_err;
 use minijinja::Value;
 use serde_json::{Value as Json, json};
@@ -45,24 +49,77 @@ pub(super) fn accessor_name(function: &str, path: &[String]) -> String {
     format!("-{function}().{}", path.join("."))
 }
 
-/// The call and member path of a member-access chain rooted at a function
-/// call (`f(x).a.b` -> (`f(x)`, `[a, b]`)), from the template value of a
-/// `FieldAccess` node's contents.
-pub(super) fn call_member_chain(field_access: &Value) -> Option<(Value, Vec<String>)> {
-    let field = field_access.get_attr("field").ok()?.as_str()?.to_string();
-    let base = field_access.get_attr("base").ok()?;
-    if let Ok(call) = base.get_attr("FunctionCall")
-        && !call.is_undefined()
-    {
-        return Some((call, vec![field]));
-    }
-    let inner = base.get_attr("FieldAccess").ok()?;
-    if inner.is_undefined() {
+/// The root and member path of a member-access chain (`e.a.b` -> (`e`,
+/// `[a, b]`)), from the contents of a `FieldAccess` node.
+pub(super) fn member_chain(field_access: &Value) -> Option<(Value, Vec<String>)> {
+    let field = get_field(field_access, "field").ok()?.as_str()?.to_string();
+    let base = get_field(field_access, "base").ok()?;
+    let (root, mut path) = match get_field(&base, "FieldAccess") {
+        Ok(inner) => member_chain(&inner)?,
+        Err(_) => (base, Vec::new()),
+    };
+    path.push(field);
+    Some((root, path))
+}
+
+/// The record fields of constructor `name`, in declaration order, read off
+/// a template value of the model's functions.
+pub(super) fn constructor_fields(functions: &Value, name: &str) -> Option<Vec<String>> {
+    let function = get_field(functions, name).ok()?;
+    if !get_field(&function, "is_constructor").ok()?.is_true() {
         return None;
     }
-    let (call, mut path) = call_member_chain(&inner)?;
-    path.push(field);
-    Some((call, path))
+    get_field(&function, "inputs")
+        .ok()?
+        .try_iter()
+        .ok()?
+        .map(|input| Some(get_field(&input, "name").ok()?.as_str()?.to_string()))
+        .collect()
+}
+
+/// `root.path` without reading a member off an `if` expression or a record
+/// constructor call: the read moves into each `if` arm, and a constructor's
+/// member is its argument for that field (`Complex(a, b).re` -> `a`). None
+/// when the root is neither, or the constructor call leaves the field out.
+pub(super) fn lower_member_read(
+    root: &Json,
+    path: &[String],
+    fields_of: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> Option<Json> {
+    if let Some(if_expr) = root.get("If") {
+        let mut lowered = if_expr.clone();
+        for branch in lowered["branches"].as_array_mut()? {
+            branch[1] = member_read(&branch[1], path, fields_of);
+        }
+        lowered["else_branch"] = member_read(&if_expr["else_branch"], path, fields_of);
+        return Some(json!({ "If": lowered }));
+    }
+    let call = root.get("FunctionCall")?;
+    if call["is_constructor"].as_bool() != Some(true) {
+        return None;
+    }
+    let position = fields_of(&reference_name(&call["name"])?)?
+        .iter()
+        .position(|field| *field == path[0])?;
+    let argument = call["args"].as_array()?.get(position)?;
+    Some(member_read(argument, &path[1..], fields_of))
+}
+
+/// `base.path` as an expression, lowered where `lower_member_read` can.
+fn member_read(
+    base: &Json,
+    path: &[String],
+    fields_of: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> Json {
+    if path.is_empty() {
+        return base.clone();
+    }
+    lower_member_read(base, path, fields_of).unwrap_or_else(|| {
+        path.iter().fold(
+            base.clone(),
+            |base, field| json!({ "FieldAccess": { "base": base, "field": field } }),
+        )
+    })
 }
 
 /// `record_field_accessors(flat, flat_equation_rows)`: one entry per member
@@ -76,8 +133,10 @@ pub(super) fn record_field_accessors_function(flat: Value, rows: Value) -> Acces
         serde_json::to_value(value)
             .map_err(|err| render_err(format!("base-modelica: unserializable model: {err}")))
     };
+    let flat_json = to_json(&flat)?;
+    let functions_json = &flat_json["functions"];
     let mut uses = BTreeSet::new();
-    collect(&to_json(&flat)?, &mut uses);
+    collect(&flat_json, functions_json, &mut uses);
     let instances = flat.get_attr("record_instances")?;
     let types = flat.get_attr("record_types")?;
     let functions = flat.get_attr("functions")?;
@@ -90,53 +149,74 @@ pub(super) fn record_field_accessors_function(flat: Value, rows: Value) -> Acces
     for partition in ["regular", "initial"] {
         for row in rows[partition].as_array().into_iter().flatten() {
             let Some(equation) = row.get("equation") else {
-                collect(row, &mut uses);
+                collect(row, functions_json, &mut uses);
                 continue;
             };
             let mut expanded = Vec::new();
             expand(equation, &layout, &mut expanded)?;
             for eq in &expanded {
-                collect(eq, &mut uses);
+                collect(eq, functions_json, &mut uses);
             }
         }
     }
-    let functions = to_json(&functions)?;
     let accessors = uses
         .into_iter()
-        .map(|(function, path)| declaration(&functions, function, path))
+        .map(|(function, path)| declaration(functions_json, function, path))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Value::from_serialize(accessors))
 }
 
 /// Every (function, member path) a `FieldAccess` chain in `node` reads off a
-/// call. A chain is one use: its inner prefixes (`f(x).a` in `f(x).a.b`) are
-/// not read on their own.
-fn collect(node: &Json, uses: &mut BTreeSet<(String, Vec<String>)>) {
+/// call, after `lower_member_read`. A chain is one use: its inner prefixes
+/// (`f(x).a` in `f(x).a.b`) are not read on their own.
+fn collect(node: &Json, functions: &Json, uses: &mut BTreeSet<(String, Vec<String>)>) {
     match node {
         Json::Object(map) => {
             if let Some(access) = map.get("FieldAccess")
-                && let Some((call, path)) = json_call_member_chain(access)
-                && let Some(function) = reference_name(&call["name"])
+                && let Some((root, path)) = json_member_chain(access)
             {
-                uses.insert((function, path));
-                return collect(call, uses);
+                let fields_of = |name: &str| json_constructor_fields(functions, name);
+                if let Some(lowered) = lower_member_read(root, &path, &fields_of) {
+                    return collect(&lowered, functions, uses);
+                }
+                if let Some(call) = root.get("FunctionCall")
+                    && let Some(function) = reference_name(&call["name"])
+                {
+                    uses.insert((function, path));
+                    return collect(call, functions, uses);
+                }
             }
-            map.values().for_each(|child| collect(child, uses));
+            map.values()
+                .for_each(|child| collect(child, functions, uses));
         }
-        Json::Array(items) => items.iter().for_each(|child| collect(child, uses)),
+        Json::Array(items) => items
+            .iter()
+            .for_each(|child| collect(child, functions, uses)),
         _ => {}
     }
 }
 
-fn json_call_member_chain(access: &Json) -> Option<(&Json, Vec<String>)> {
+fn json_member_chain(access: &Json) -> Option<(&Json, Vec<String>)> {
     let field = access["field"].as_str()?.to_string();
     let base = &access["base"];
-    if let Some(call) = base.get("FunctionCall") {
-        return Some((call, vec![field]));
-    }
-    let (call, mut path) = json_call_member_chain(base.get("FieldAccess")?)?;
+    let (root, mut path) = match base.get("FieldAccess") {
+        Some(inner) => json_member_chain(inner)?,
+        None => (base, Vec::new()),
+    };
     path.push(field);
-    Some((call, path))
+    Some((root, path))
+}
+
+fn json_constructor_fields(functions: &Json, name: &str) -> Option<Vec<String>> {
+    let function = functions.get(name)?;
+    if function["is_constructor"].as_bool() != Some(true) {
+        return None;
+    }
+    function["inputs"]
+        .as_array()?
+        .iter()
+        .map(|input| Some(input["name"].as_str()?.to_string()))
+        .collect()
 }
 
 fn reference_name(name: &Json) -> Option<String> {

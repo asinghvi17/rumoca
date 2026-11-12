@@ -1267,15 +1267,10 @@ fn render_index(index: &Value, cfg: &ExprConfig) -> RenderResult {
 
 /// Render a field access expression as `base.field`.
 fn render_field_access(fa: &Value, cfg: &ExprConfig) -> RenderResult {
-    // Base Modelica has no member access on a call: the member is read by
-    // the generated accessor the package declares for it.
     if cfg.base_modelica
-        && let Some((call, path)) = super::base_modelica_accessors::call_member_chain(fa)
+        && let Some(rendered) = render_base_modelica_member_read(fa, cfg)?
     {
-        let function = render_name_field(&call, "name", "FunctionCall")?;
-        let accessor = super::base_modelica_accessors::accessor_name(&function, &path);
-        let args = render_args(&call, cfg)?;
-        return Ok(format!("{}({args})", super::quote_identifier(&accessor)));
+        return Ok(rendered);
     }
     let base = get_field(fa, "base")
         .map_err(|_| render_err("FieldAccess missing 'base' field"))
@@ -1291,6 +1286,45 @@ fn render_field_access(fa: &Value, cfg: &ExprConfig) -> RenderResult {
         ));
     }
     Ok(format!("{base}.{field}"))
+}
+
+/// Base Modelica has no member access on an `if` expression or a call
+/// (MCP-0031 `primary`): the read moves into the `if` arms, a constructor's
+/// member is its argument, and any other call's member is read by the
+/// generated accessor the package declares for it (`base_modelica_accessors`).
+fn render_base_modelica_member_read(
+    fa: &Value,
+    cfg: &ExprConfig,
+) -> Result<Option<String>, minijinja::Error> {
+    use super::base_modelica_accessors as accessors;
+    let Some((root, path)) = accessors::member_chain(fa) else {
+        return Ok(None);
+    };
+    let is_if = get_field(&root, "If").is_ok();
+    let call = get_field(&root, "FunctionCall").ok();
+    if !is_if && call.is_none() {
+        return Ok(None);
+    }
+    let root_json = serde_json::to_value(&root)
+        .map_err(|err| render_err(format!("unserializable member-access root: {err}")))?;
+    let fields_of = |name: &str| {
+        cfg.quote_functions
+            .as_ref()
+            .and_then(|functions| accessors::constructor_fields(functions, name))
+    };
+    if let Some(lowered) = accessors::lower_member_read(&root_json, &path, &fields_of) {
+        return render_expression(&Value::from_serialize(lowered), cfg).map(Some);
+    }
+    let Some(call) = call else {
+        return Ok(None);
+    };
+    let function = render_name_field(&call, "name", "FunctionCall")?;
+    let accessor = accessors::accessor_name(&function, &path);
+    let args = render_args(&call, cfg)?;
+    Ok(Some(format!(
+        "{}({args})",
+        super::quote_identifier(&accessor)
+    )))
 }
 
 #[cfg(test)]

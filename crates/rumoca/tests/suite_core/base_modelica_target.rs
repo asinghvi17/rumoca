@@ -548,7 +548,8 @@ end Rec;";
 /// a call of a generated accessor `'-f().x'` that keeps the call's inputs,
 /// stores the call in a record local and returns the member, wherever the
 /// read occurs (a binding, an expression, a function body, a nested record
-/// member, a record equation). 109 MSL examples (MultiBody `Frames`, Media
+/// member, a record equation). A read off a record-valued `if` moves into
+/// its arms, and a constructor's member is its argument. 109 MSL examples (MultiBody `Frames`, Media
 /// `ThermodynamicState`, `Complex` operators) stopped at the member access.
 #[test]
 fn members_of_record_valued_calls_read_through_generated_accessors() {
@@ -592,6 +593,7 @@ fn members_of_record_valued_calls_read_through_generated_accessors() {
     Real u;
     Real v;
     Point w;
+    Point z = if time > 0.5 then make(time) else Point(0, 1);
   equation
     u = norm(make(time, 4));
     v = norm1(time);
@@ -615,6 +617,8 @@ end Rec;";
                 "    Real 's.a.x'(start = 0.0) = '-seg().a.x'(time);",
                 "    'u' = 'norm'('-make().x'(time, 4), '-make().y'(time, 4));",
                 "    'w.x' = '-make().x'('v', 2);\n    'w.y' = '-make().y'('v', 2);",
+                "    Real 'z.x'(start = 0.0) = (if (time > 0.5) then '-make().x'(time, 2) else 0);",
+                "    Real 'z.y'(start = 0.0) = (if (time > 0.5) then '-make().y'(time, 2) else 1);",
             ],
         );
         assert!(!out.contains(").'"), "member access on a call in:\n{out}");

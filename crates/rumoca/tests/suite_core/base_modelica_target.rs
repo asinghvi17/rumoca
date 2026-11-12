@@ -534,11 +534,91 @@ end Rec;";
         assert_contains_all(
             &out,
             &[
-                "    'w.x' = 'make'(time).'x';\n    'w.y' = 'make'(time).'y';",
+                "    'w.x' = '-make().x'(time);\n    'w.y' = '-make().y'(time);",
                 "    'u.x' = 'w.x';\n    'u.y' = 'w.y';",
                 "    'c.x' = time;\n    'c.y' = 3;",
             ],
         );
+    }
+}
+
+/// A member read off a record-valued call (`make(a).x`) has no Base Modelica
+/// spelling: MCP-0031's `primary` ends at the call arguments, and a record
+/// member is reached only through an instance. Each member read this way is
+/// a call of a generated accessor `'-f().x'` that keeps the call's inputs,
+/// stores the call in a record local and returns the member, wherever the
+/// read occurs (a binding, an expression, a function body, a nested record
+/// member, a record equation). 109 MSL examples (MultiBody `Frames`, Media
+/// `ThermodynamicState`, `Complex` operators) stopped at the member access.
+#[test]
+fn members_of_record_valued_calls_read_through_generated_accessors() {
+    let source = "package Rec
+  record Point
+    Real x;
+    Real y;
+  end Point;
+  record Seg
+    Point a;
+    Real w;
+  end Seg;
+  function make
+    input Real a;
+    input Real k = 2;
+    output Point p;
+  algorithm
+    p := Point(a, k * a);
+  end make;
+  function seg
+    input Real a;
+    output Seg s;
+  algorithm
+    s := Seg(Point(a, a), 1);
+  end seg;
+  function norm
+    input Point p;
+    output Real n;
+  algorithm
+    n := abs(p.x) + abs(p.y);
+  end norm;
+  function norm1
+    input Real a;
+    output Real n;
+  algorithm
+    n := norm(make(a));
+  end norm1;
+  model M
+    parameter Point q = make(3);
+    Seg s = seg(time);
+    Real u;
+    Real v;
+    Point w;
+  equation
+    u = norm(make(time, 4));
+    v = norm1(time);
+    w = make(v);
+  end M;
+end Rec;";
+    for target in ["base-modelica", "base-modelica-scalar"] {
+        let out = render_ok(source, "Rec.M", target);
+        assert_contains_all(
+            &out,
+            &[
+                "  function '-make().x' \"Automatically generated accessor for member x of the \
+                 result of make\"\n    input Real 'a';\n    input Real 'k' = 2;\n    \
+                 output Real '-member';\n    'Rec.Point' '-record';\n  algorithm\n    \
+                 '-record' := 'make'('a', 'k');\n    '-member' := '-record'.'x';\n  \
+                 end '-make().x';\n",
+                "  function '-seg().a.x' ",
+                "    '-member' := '-record'.'a'.'x';",
+                "    'n' := 'Rec.norm'('-Rec.make().x'('a', 2), '-Rec.make().y'('a', 2));",
+                "    parameter Real 'q.x' = '-make().x'(3, 2);",
+                "    Real 's.a.x'(start = 0.0) = '-seg().a.x'(time);",
+                "    'u' = 'norm'('-make().x'(time, 4), '-make().y'(time, 4));",
+                "    'w.x' = '-make().x'('v', 2);\n    'w.y' = '-make().y'('v', 2);",
+            ],
+        );
+        assert!(!out.contains(").'"), "member access on a call in:\n{out}");
+        assert!(!out.contains("'-seg().a'"), "unused accessor in:\n{out}");
     }
 }
 

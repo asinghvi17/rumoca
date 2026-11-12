@@ -1,10 +1,11 @@
 //! Base Modelica (MCP-0031) rendering helpers for the `base-modelica` target.
 //!
-//! Template functions: `quote_ident` (a Q-IDENT), `is_builtin_alias` (a
-//! function every call of which renders as a built-in), `scalar_indices` (the
-//! row-major element subscripts of an array shape) and `array_element` (one
-//! element of an array-valued attribute), the last two used when the target
-//! scalarizes arrays.
+//! Template functions, all registered by [`register`]: `quote_ident` (a
+//! Q-IDENT), `is_builtin_alias` (a function every call of which renders as a
+//! built-in), `scalar_indices` (the row-major element subscripts of an array
+//! shape) and `array_element` (one element of an array-valued attribute), the
+//! last two used when the target scalarizes arrays; and those of the
+//! scalarizing, record-equation and record-accessor modules.
 //!
 //! Algorithm statements: function bodies and `algorithm` sections of the `base-modelica` target:
 //! `:=` assignments, every block closed (`end if;`, `end for;`, `end while;`,
@@ -16,6 +17,30 @@ use super::render_expr::{get_field, render_args, render_expression, render_seria
 use super::{ExprConfig, RenderResult};
 use crate::errors::render_err;
 use minijinja::Value;
+
+/// Register the `base-modelica` template functions.
+pub(super) fn register(env: &mut minijinja::Environment<'static>) {
+    env.add_function("quote_ident", quote_ident_function);
+    env.add_function("is_builtin_alias", is_builtin_alias_function);
+    env.add_function("scalar_indices", scalar_indices_function);
+    env.add_function("array_element", array_element_function);
+    env.add_function(
+        "scalarize_equation",
+        super::base_modelica_scalarize::scalarize_equation_function,
+    );
+    env.add_function(
+        "unroll_family",
+        super::base_modelica_scalarize::unroll_family_function,
+    );
+    env.add_function(
+        "record_field_equations",
+        super::base_modelica_records::record_field_equations_function,
+    );
+    env.add_function(
+        "record_field_accessors",
+        super::base_modelica_accessors::record_field_accessors_function,
+    );
+}
 
 /// Render a statement list, one statement per line.
 pub(crate) fn render_statements(stmts: &Value, cfg: &ExprConfig, indent: &str) -> RenderResult {
@@ -263,7 +288,7 @@ fn render_part_subscripts(part: &Value, cfg: &ExprConfig) -> RenderResult {
 }
 
 /// `quote_ident(name)`: `name` as a quoted identifier (`R1.p.v` -> `'R1.p.v'`).
-pub(super) fn quote_ident_function(name: Value) -> RenderResult {
+fn quote_ident_function(name: Value) -> RenderResult {
     let name = name
         .as_str()
         .ok_or_else(|| render_err(format!("quote_ident expects a string, got {name}")))?;
@@ -273,7 +298,7 @@ pub(super) fn quote_ident_function(name: Value) -> RenderResult {
 /// `is_builtin_alias(name)`: whether every call of function `name` renders as
 /// a built-in operator (`Modelica.Math.sin` -> `sin`), so the package does
 /// not need to declare it.
-pub(super) fn is_builtin_alias_function(name: Value) -> bool {
+fn is_builtin_alias_function(name: Value) -> bool {
     name.as_str()
         .is_some_and(|name| super::render_expr::resolve_modelica_math_function(name).is_some())
 }
@@ -281,7 +306,7 @@ pub(super) fn is_builtin_alias_function(name: Value) -> bool {
 /// `scalar_indices(dims)`: every element subscript of shape `dims` in
 /// row-major order, as comma-joined one-based indices (`[2, 2]` ->
 /// `["1,1", "1,2", "2,1", "2,2"]`).
-pub(super) fn scalar_indices_function(dims: Value) -> Result<Value, minijinja::Error> {
+fn scalar_indices_function(dims: Value) -> Result<Value, minijinja::Error> {
     let mut extents = Vec::new();
     for dim in dims.try_iter()? {
         let extent = dim
@@ -314,7 +339,7 @@ pub(super) fn scalar_indices_function(dims: Value) -> Result<Value, minijinja::E
 /// array-valued attribute or binding. An array literal is indexed, an
 /// unsubscripted reference to an array in `arrays` (the declared variables)
 /// gains the subscripts, and a scalar applies to every element (`each`).
-pub(super) fn array_element_function(
+fn array_element_function(
     expr: Value,
     index: Value,
     arrays: Value,

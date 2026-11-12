@@ -215,6 +215,32 @@
 {%- endif -%}
 {%- endmacro -%}
 
+{#- A member read off a record-valued call (`f(x).re`), which MCP-0031 has
+    no syntax for, is a call of a generated accessor `'-f().re'` with `f`'s
+    inputs that stores the call in a record local and returns the member;
+    see `record_field_accessors`. -#}
+{%- macro accessor_decl(acc) -%}
+{%- set ns_f = namespace(names=["-member", "-record"]) -%}
+{%- for p in acc.inputs %}{% set ns_f.names = ns_f.names + [p.name] %}{% endfor -%}
+{%- set fcfg = {
+  "power": "^", "and_op": "and", "or_op": "or", "not_op": "not ",
+  "true_val": "true", "false_val": "false", "array_start": "{", "array_end": "}",
+  "if_style": "modelica", "sanitize_dots": false, "base_modelica": true,
+  "quote_names": ns_f.names, "quote_functions": flat.functions,
+  "quote_types": ns_enum.names, "one_based_index": true, "modelica_builtins": true
+} -%}
+{{ "  " ~ ("impure " if not acc.pure else "") }}function {{ quote_ident(acc.name) }} {{ ("Automatically generated accessor for member " ~ (acc.path | join(".")) ~ " of the result of " ~ acc.function) | modelica_string }}
+{%- for p in acc.inputs %}
+    {{ function_param("input ", p, fcfg) }}
+{%- endfor %}
+    {{ function_param("output ", acc.member, fcfg) }}
+    {{ function_param("", acc.record, fcfg) }}
+  algorithm
+    '-record' := {{ quote_ident(acc.call) }}({% for p in acc.inputs %}{{ ", " if not loop.first }}{{ quote_ident(p.name) }}{% endfor %});
+    '-member' := '-record'{% for field in acc.path %}.{{ quote_ident(field) }}{% endfor %};
+  end {{ quote_ident(acc.name) }};
+{%- endmacro -%}
+
 {#- A record type the emitted functions use (as a component type or through
     its constructor), declared as a package-level class with the
     constructor's fields. Record components of the model itself stay
@@ -328,6 +354,9 @@ package {{ name }}
 {%- endfor %}
 {%- for fname, func in flat.functions | items if not is_builtin_alias(fname) %}
 {{ function_decl(fname, func) }}
+{%- endfor %}
+{%- for acc in record_field_accessors(flat, flat_equation_rows) %}
+{{ accessor_decl(acc) }}
 {%- endfor %}
   model {{ name }}{{ description(flat.model_description) }}
 {%- for vname, var in flat.variables | items %}{{ declaration(vname, var) }}{% endfor %}

@@ -11,9 +11,11 @@
 //!   in declaration order, a missing trailing argument taking the
 //!   constructor's default;
 //! * a call to a function returning the record (`v = Complex.'-'.subtract(a,
-//!   b)`), each field read off the call (`'v.re' = 'Complex.\'-\'.subtract'(a,
-//!   b).'re'`), the member access Flat already writes for a record-valued
-//!   call nested in an expression.
+//!   b)`), each field read off the call (`v.re = Complex.'-'.subtract(a,
+//!   b).re`), the member access Flat already writes for a record-valued call
+//!   nested in an expression. The renderer writes it as a call of a generated
+//!   accessor, `'-Complex.\'-\'.subtract().re'(a, b)`; see
+//!   `base_modelica_accessors`.
 //!
 //! Any other value is left whole, and the renderer refuses it as before.
 
@@ -43,13 +45,13 @@ pub(super) fn record_field_equations_function(
     Ok(Value::from_serialize(rows))
 }
 
-struct Layout<'a> {
-    instances: &'a Value,
-    types: &'a Value,
-    functions: &'a Value,
+pub(super) struct Layout<'a> {
+    pub(super) instances: &'a Value,
+    pub(super) types: &'a Value,
+    pub(super) functions: &'a Value,
 }
 
-fn expand(eq: &Json, layout: &Layout<'_>, rows: &mut Vec<Json>) -> Expansion<()> {
+pub(super) fn expand(eq: &Json, layout: &Layout<'_>, rows: &mut Vec<Json>) -> Expansion<()> {
     let Some(fields) = field_pairs(eq, layout)? else {
         rows.push(eq.clone());
         return Ok(());

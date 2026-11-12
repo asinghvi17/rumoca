@@ -11,6 +11,7 @@ use serde::Serialize;
 
 mod algorithm_code_renderer;
 mod base_modelica;
+mod base_modelica_accessors;
 mod base_modelica_records;
 mod base_modelica_scalarize;
 #[cfg(test)]
@@ -898,22 +899,7 @@ fn create_environment() -> Environment<'static> {
 
     // Custom function for flat equation rendering (Model residual equations)
     env.add_function("render_flat_equation", render_flat_equation_function);
-    env.add_function("quote_ident", base_modelica::quote_ident_function);
-    env.add_function("is_builtin_alias", base_modelica::is_builtin_alias_function);
-    env.add_function("scalar_indices", base_modelica::scalar_indices_function);
-    env.add_function("array_element", base_modelica::array_element_function);
-    env.add_function(
-        "scalarize_equation",
-        base_modelica_scalarize::scalarize_equation_function,
-    );
-    env.add_function(
-        "unroll_family",
-        base_modelica_scalarize::unroll_family_function,
-    );
-    env.add_function(
-        "record_field_equations",
-        base_modelica_records::record_field_equations_function,
-    );
+    base_modelica::register(&mut env);
 
     // Custom function for detecting self-referential (builtin alias) functions
     env.add_function("is_self_call", is_self_call_function);

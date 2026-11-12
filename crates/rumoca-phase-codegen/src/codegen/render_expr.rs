@@ -1262,6 +1262,16 @@ fn render_index(index: &Value, cfg: &ExprConfig) -> RenderResult {
 
 /// Render a field access expression as `base.field`.
 fn render_field_access(fa: &Value, cfg: &ExprConfig) -> RenderResult {
+    // Base Modelica has no member access on a call: the member is read by
+    // the generated accessor the package declares for it.
+    if cfg.base_modelica
+        && let Some((call, path)) = super::base_modelica_accessors::call_member_chain(fa)
+    {
+        let function = render_name_field(&call, "name", "FunctionCall")?;
+        let accessor = super::base_modelica_accessors::accessor_name(&function, &path);
+        let args = render_args(&call, cfg)?;
+        return Ok(format!("{}({args})", super::quote_identifier(&accessor)));
+    }
     let base = get_field(fa, "base")
         .map_err(|_| render_err("FieldAccess missing 'base' field"))
         .and_then(|v| render_expression(&v, cfg))?;

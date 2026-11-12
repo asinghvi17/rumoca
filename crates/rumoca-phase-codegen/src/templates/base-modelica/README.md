@@ -42,8 +42,13 @@ interchange artifact, not a simulation runtime.
   `function '-R'` returning `_result('f' = 'f', ...)`, and a member of a
   record-typed function component reads `'p'.'x'`. Record components of the
   model itself stay flattened to scalar fields (`'q.x'`), which MCP-0031
-  permits; a record-valued equation on such a component has no Base Modelica
-  spelling and fails rendering.
+  permits; a record-valued equation on such a component is written field by
+  field (MLS §8.3.1).
+- MCP-0031 has no member access on a call (`f(x).re`): a member is reached
+  only through a record instance. Each member read off a record-valued call
+  is a call of a generated accessor `function '-f().re'`, which takes `f`'s
+  inputs, stores the call in a record local `'-record'` and returns
+  `'-record'.'re'`.
 - Equations, initial equations, assertions, `when`/`elsewhen` chains (with
   `reinit`, discrete assignments, `if` branches, `assert`, `terminate`),
   algorithm and initial algorithm sections are all kept. User function

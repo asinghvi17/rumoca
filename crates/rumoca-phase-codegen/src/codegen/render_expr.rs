@@ -81,6 +81,11 @@ pub(crate) fn render_expression(expr: &Value, cfg: &ExprConfig) -> RenderResult 
     if let Ok(field_access) = get_field(expr, "FieldAccess") {
         return render_field_access(&field_access, cfg);
     }
+    if cfg.modelica_builtins
+        && let Ok(conversion) = get_field(expr, "StringConversion")
+    {
+        return render_string_conversion(&conversion, cfg);
+    }
     // Unit variants (e.g. Empty) serialize as plain strings, not objects,
     // so get_field() won't match them — check string representation instead.
     let s = expr.to_string();
@@ -558,6 +563,36 @@ fn render_builtin(builtin: &Value, cfg: &ExprConfig) -> RenderResult {
         return Ok(render_builtin_modelica(&func_name, &args, cfg));
     }
     render_builtin_python(&func_name, &args, cfg)
+}
+
+/// The predefined `String(...)` conversion (MLS §3.7.1), with whichever
+/// named formatting arguments the source gave.
+fn render_string_conversion(conversion: &Value, cfg: &ExprConfig) -> RenderResult {
+    let value = get_field(conversion, "value")
+        .map_err(|_| render_err("StringConversion missing 'value' field"))?;
+    let mut args = vec![render_expression(&value, cfg)?];
+    let format = get_field(conversion, "format")
+        .map_err(|_| render_err("StringConversion missing 'format' field"))?;
+    if let Ok(options) = get_field(&format, "Options") {
+        for (field, name) in [
+            ("significant_digits", "significantDigits"),
+            ("minimum_length", "minimumLength"),
+            ("left_justified", "leftJustified"),
+        ] {
+            if let Ok(arg) = get_field(&options, field) {
+                args.push(format!("{name} = {}", render_expression(&arg, cfg)?));
+            }
+        }
+    } else if let Ok(format) = get_field(&format, "Format") {
+        let spec = get_field(&format, "value")
+            .map_err(|_| render_err("StringConversion format missing 'value' field"))?;
+        args.push(format!("format = {}", render_expression(&spec, cfg)?));
+    } else {
+        return Err(render_err(format!(
+            "unhandled StringConversion format: {format}"
+        )));
+    }
+    Ok(format!("String({})", args.join(", ")))
 }
 
 fn render_builtin_name(builtin: &Value) -> RenderResult {

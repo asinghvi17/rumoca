@@ -590,3 +590,39 @@ end EventSample;";
         recompiles(&out, "EventSample");
     }
 }
+
+/// The predefined `String(...)` conversion (MLS §3.7.1) renders with the
+/// formatting arguments the source gave, in an `assert` message and in a
+/// function body (MSL Limiter, PID, Media property checks).
+#[test]
+fn string_conversions_keep_their_format_arguments() {
+    let source = "model StringConv
+  function label
+    input Real v;
+    input Integer n;
+    output String s;
+  algorithm
+    s := String(v, significantDigits = 3) + String(n, minimumLength = 4, leftJustified = false)
+      + String(v, format = \"6.2f\");
+  end label;
+  parameter Real k = 2;
+  parameter String l = label(k, 3);
+  Real x(start = 1, fixed = true);
+equation
+  der(x) = -k * x;
+  assert(k > 0, \"k = \" + String(k) + \" must be positive\");
+end StringConv;";
+    for target in ["base-modelica", "base-modelica-scalar"] {
+        let out = render_ok(source, "StringConv", target);
+        assert_contains_all(
+            &out,
+            &[
+                "    assert(('k' > 0), ((\"k = \" + String('k')) + \" must be positive\"));",
+                "String('v', significantDigits = 3)",
+                "String('n', minimumLength = 4, leftJustified = false)",
+                "String('v', format = \"6.2f\")",
+            ],
+        );
+        recompiles(&out, "StringConv");
+    }
+}

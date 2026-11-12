@@ -239,6 +239,12 @@ struct KnownFlatVars {
     /// The same compile-time values keyed by exact occurrence, so a subscript
     /// reference folds without depending on how its name is spelled.
     integer_values_by_occurrence: rustc_hash::FxHashMap<rumoca_core::InstanceId, i64>,
+    /// Compile-time values of Integer `constant`/`parameter` arrays, so a
+    /// subscript written as one of their elements (`z[idx[k]]`) folds too.
+    integer_arrays: rustc_hash::FxHashMap<String, rumoca_eval_flat::constant::Value>,
+    /// The same array values keyed by exact occurrence.
+    integer_arrays_by_occurrence:
+        rustc_hash::FxHashMap<rumoca_core::InstanceId, rumoca_eval_flat::constant::Value>,
 }
 
 impl KnownFlatVars {
@@ -279,18 +285,27 @@ impl KnownFlatVars {
         let records_by_occurrence = record_references()
             .map(|(_, instance_id, reference)| (instance_id, reference))
             .collect();
-        let structural_values = || {
-            flat.variables.iter().filter_map(|(name, var)| {
-                rumoca_eval_flat::flat_int::structural_integer_value(var, flat)
-                    .map(|value| (name, var.instance_id, value))
+        let structural_values: Vec<_> = flat
+            .variables
+            .iter()
+            .filter_map(|(name, var)| {
+                rumoca_eval_flat::flat_int::structural_integer_data(var, flat)
+                    .map(|value| (name.as_str(), var.instance_id, value))
             })
-        };
-        let integer_values = structural_values()
-            .map(|(name, _, value)| (name.as_str().to_string(), value))
             .collect();
-        let integer_values_by_occurrence = structural_values()
-            .map(|(_, instance_id, value)| (instance_id, value))
-            .collect();
+        let mut integer_values = rustc_hash::FxHashMap::default();
+        let mut integer_values_by_occurrence = rustc_hash::FxHashMap::default();
+        let mut integer_arrays = rustc_hash::FxHashMap::default();
+        let mut integer_arrays_by_occurrence = rustc_hash::FxHashMap::default();
+        for (name, instance_id, value) in structural_values {
+            if let Some(value) = value.as_integer() {
+                integer_values.insert(name.to_string(), value);
+                integer_values_by_occurrence.insert(instance_id, value);
+            } else {
+                integer_arrays.insert(name.to_string(), value.clone());
+                integer_arrays_by_occurrence.insert(instance_id, value);
+            }
+        }
         Self {
             names,
             record_instances,
@@ -315,6 +330,8 @@ impl KnownFlatVars {
             occurrences: occurrence_graph::OccurrenceGraph::build(flat),
             integer_values,
             integer_values_by_occurrence,
+            integer_arrays,
+            integer_arrays_by_occurrence,
         }
     }
 
@@ -357,25 +374,7 @@ impl KnownFlatVars {
         match expr {
             rumoca_core::Expression::VarRef {
                 name, subscripts, ..
-            } => {
-                let scope = name.instance_id()?;
-                // Only a class-body occurrence scopes a written path. A
-                // reference this pass already collapsed carries the occurrence
-                // it names instead, and its parts spell the whole flat path
-                // rather than a path relative to that occurrence.
-                if self.occurrences.kind(scope)? != flat::InstanceKind::Class {
-                    return None;
-                }
-                let mut cursor = occurrence_graph::PathCursor::At(scope);
-                for part in name.component_ref()?.parts() {
-                    let indices = fold_indices(&part.subs, self)?;
-                    cursor = self
-                        .occurrences
-                        .select_member(cursor, part.def_id, &indices)?;
-                }
-                self.occurrences
-                    .apply_indices(cursor, &fold_indices(subscripts, self)?)
-            }
+            } => self.reference_cursor(name, subscripts),
             rumoca_core::Expression::Index {
                 base, subscripts, ..
             } => {
@@ -391,6 +390,31 @@ impl KnownFlatVars {
             }
             _ => None,
         }
+    }
+
+    /// Walk a written reference, `name` followed by `subscripts`.
+    fn reference_cursor(
+        &self,
+        name: &rumoca_core::Reference,
+        subscripts: &[rumoca_core::Subscript],
+    ) -> Option<occurrence_graph::PathCursor> {
+        let scope = name.instance_id()?;
+        // Only a class-body occurrence scopes a written path. A reference this
+        // pass already collapsed carries the occurrence it names instead, and
+        // its parts spell the whole flat path rather than a path relative to
+        // that occurrence.
+        if self.occurrences.kind(scope)? != flat::InstanceKind::Class {
+            return None;
+        }
+        let mut cursor = occurrence_graph::PathCursor::At(scope);
+        for part in name.component_ref()?.parts() {
+            let indices = fold_indices(&part.subs, self)?;
+            cursor = self
+                .occurrences
+                .select_member(cursor, part.def_id, &indices)?;
+        }
+        self.occurrences
+            .apply_indices(cursor, &fold_indices(subscripts, self)?)
     }
 
     /// Flat reference for whatever `cursor` names, if the model materialized it
@@ -540,15 +564,35 @@ impl KnownFlatVars {
         })
     }
 
-    /// Compile-time integer value of whatever occurrence `expr` names.
-    fn occurrence_integer_value(&self, expr: &rumoca_core::Expression) -> Option<i64> {
+    /// Compile-time integer value of whatever occurrence `name` names.
+    fn occurrence_integer_value(&self, name: &rumoca_core::Reference) -> Option<i64> {
+        self.integer_values_by_occurrence
+            .get(&self.occurrence_id(name)?)
+            .copied()
+    }
+
+    /// Exact occurrence an unsubscripted reference names.
+    fn occurrence_id(&self, name: &rumoca_core::Reference) -> Option<rumoca_core::InstanceId> {
         if self.occurrences.is_empty() {
             return None;
         }
-        let occurrence_graph::PathCursor::At(instance_id) = self.path_cursor(expr)? else {
-            return None;
-        };
-        self.integer_values_by_occurrence.get(&instance_id).copied()
+        match self.reference_cursor(name, &[])? {
+            occurrence_graph::PathCursor::At(instance_id) => Some(instance_id),
+            _ => None,
+        }
+    }
+
+    /// Compile-time element `indices` of the Integer array `name` names.
+    fn integer_array_element(&self, name: &rumoca_core::Reference, indices: &[i64]) -> Option<i64> {
+        let mut value = self
+            .occurrence_id(name)
+            .and_then(|id| self.integer_arrays_by_occurrence.get(&id))
+            .or_else(|| self.integer_arrays.get(name.as_str()))?;
+        for &index in indices {
+            let position = usize::try_from(index).ok()?.checked_sub(1)?;
+            value = value.as_array()?.get(position)?;
+        }
+        value.as_integer()
     }
 }
 
@@ -902,6 +946,24 @@ fn fold_indices(
     Some(indices)
 }
 
+/// Indices of a subscript list nested inside a subscript being folded.
+fn fold_element_indices(
+    subscripts: &[rumoca_core::Subscript],
+    known_flat_vars: &KnownFlatVars,
+    depth: u8,
+) -> Option<Vec<i64>> {
+    subscripts
+        .iter()
+        .map(|subscript| match subscript {
+            rumoca_core::Subscript::Index { value, .. } => Some(*value),
+            rumoca_core::Subscript::Expr { expr, .. } => {
+                fold_subscript_expr(expr, known_flat_vars, depth + 1)
+            }
+            rumoca_core::Subscript::Colon { .. } => None,
+        })
+        .collect()
+}
+
 fn subscript_suffix(
     subscripts: &[rumoca_core::Subscript],
     known_flat_vars: &KnownFlatVars,
@@ -940,8 +1002,31 @@ fn fold_subscript_expr(
         rumoca_core::Expression::VarRef {
             name, subscripts, ..
         } if subscripts.is_empty() => known_flat_vars
-            .occurrence_integer_value(expr)
+            .occurrence_integer_value(name)
             .or_else(|| known_flat_vars.integer_value(name.as_str())),
+        // An element of an Integer parameter array, such as the
+        // `indexNonPos[k]` of `iSymmetricalComponent[indexNonPos[k]]`
+        // (`Magnetic.QuasiStatic.FundamentalWave.Components.
+        // PolyphaseElectroMagneticConverter`).
+        rumoca_core::Expression::VarRef {
+            name, subscripts, ..
+        } => known_flat_vars.integer_array_element(
+            name,
+            &fold_element_indices(subscripts, known_flat_vars, depth)?,
+        ),
+        rumoca_core::Expression::Index {
+            base, subscripts, ..
+        } => match base.as_ref() {
+            rumoca_core::Expression::VarRef {
+                name,
+                subscripts: base_subscripts,
+                ..
+            } if base_subscripts.is_empty() => known_flat_vars.integer_array_element(
+                name,
+                &fold_element_indices(subscripts, known_flat_vars, depth)?,
+            ),
+            _ => None,
+        },
         rumoca_core::Expression::Binary { op, lhs, rhs, .. } => {
             let lhs = fold_subscript_expr(lhs, known_flat_vars, depth + 1)?;
             let rhs = fold_subscript_expr(rhs, known_flat_vars, depth + 1)?;

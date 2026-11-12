@@ -342,6 +342,7 @@ mod record_array_dimension_chain;
 mod record_array_equation;
 mod record_array_field_equations;
 mod record_array_member_slice_test;
+mod record_array_parameter_subscripts;
 mod record_call_arguments;
 mod record_connector_equation_test;
 mod record_constant_members;

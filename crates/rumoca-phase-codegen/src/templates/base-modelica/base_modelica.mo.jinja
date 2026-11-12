@@ -163,7 +163,7 @@
 {%- macro function_param(prefix_kw, param, fcfg) -%}
 {%- set t = param.type_name if param.type_name in ["Real", "Integer", "Boolean", "String"] else quote_ident(param.type_name) -%}
 {{ prefix_kw }}{{ t }} {{ quote_ident(param.name) }}
-{%- if param.shape_expr | length > 0 %}[{% for d in param.shape_expr %}{{ ", " if not loop.first }}{{ render_expr(d, fcfg) }}{% endfor %}]
+{%- if param.shape_expr | length > 0 %}[{% for d in param.shape_expr %}{{ ", " if not loop.first }}{{ render_subscript(d, fcfg) }}{% endfor %}]
 {%- elif param.effective_type.dimensions | length > 0 %}[{{ param.effective_type.dimensions | map("string") | join(", ") }}]{% endif -%}
 {%- if param.default is not none %} = {{ render_expr(param.default, fcfg) }}{% endif -%}
 {{ description(param.description) }};

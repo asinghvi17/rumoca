@@ -89,7 +89,7 @@ mod wgsl_ode_tests;
 
 use crate::templates;
 pub(crate) use expr_config::{ExprConfig, IfStyle, get_str_attr};
-use render_expr::{get_field, is_variant, render_expression};
+use render_expr::{get_field, is_variant, render_expression, render_subscript};
 use render_solve::{
     render_linsolve_mlir_function, render_matmul_mlir_function,
     render_solve_row_output_wgsl_function, render_solve_row_wgsl_function,
@@ -848,6 +848,7 @@ fn create_environment() -> Environment<'static> {
         real_extremum::real_extremum_prelude_function,
     );
     env.add_function("render_expr", render_expr_function);
+    env.add_function("render_subscript", render_subscript_function);
     env.add_function("render_event_indicator", render_event_indicator_function);
     env.add_function("render_solve_row_wgsl", render_solve_row_wgsl_function);
     env.add_function(
@@ -1370,6 +1371,13 @@ fn is_self_call_function(func_name: Value, func: Value) -> Result<bool, minijinj
 fn render_expr_function(expr: Value, config: Value) -> RenderResult {
     let cfg = ExprConfig::from_value(&config);
     render_expression(&expr, &cfg)
+}
+
+/// Render one array subscript (`Subscript::Index`, `Colon` or `Expr`), such
+/// as a declared dimension of a function parameter (`u[:]`, `b[size(a, 1)]`).
+fn render_subscript_function(sub: Value, config: Value) -> RenderResult {
+    let cfg = ExprConfig::from_value(&config);
+    render_subscript(&sub, &cfg)
 }
 
 /// Render a relation as a numeric root function for FMI event indicators.

@@ -528,3 +528,43 @@ end Rec;";
         "{error}"
     );
 }
+
+/// Re-reads emitted Base Modelica through the compiler under its quoted path.
+fn recompiles(out: &str, model: &str) {
+    Compiler::new()
+        .model(&format!("'{model}'.'{model}'"))
+        .compile_str(out, &format!("{model}.bmo"))
+        .unwrap_or_else(|error| panic!("{model} recompiles: {error:#}\n{out}"));
+}
+
+/// A function parameter's declared dimensions are subscripts, not
+/// expressions: an unsized `u[:]`, a literal `c[2]` and an expression
+/// `b[size(a, 1)]` each keep their source spelling (MSL Polynomials,
+/// Vectors, Tables, Matrices; 212 MSL examples stopped here).
+#[test]
+fn function_parameter_dimensions_render_as_subscripts() {
+    let source = "model FunctionDims
+  function dot
+    input Real a[:];
+    input Real b[size(a, 1)];
+    input Real c[2];
+    output Real y;
+  algorithm
+    y := a * b + c[1];
+  end dot;
+  parameter Real p[2] = {1, 2};
+  Real x(start = 0, fixed = true);
+equation
+  der(x) = dot(p, p, p) - x;
+end FunctionDims;";
+    let out = render_ok(source, "FunctionDims", "base-modelica");
+    assert_contains_all(
+        &out,
+        &[
+            "    input Real 'a'[:];",
+            "    input Real 'b'[size('a', 1)];",
+            "    input Real 'c'[2];",
+        ],
+    );
+    recompiles(&out, "FunctionDims");
+}

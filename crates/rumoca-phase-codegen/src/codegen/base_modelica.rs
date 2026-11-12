@@ -111,10 +111,30 @@ fn slice_extent(sub: &serde_json::Value) -> Option<Extent> {
         Some(step) if !step.is_null() => integer_literal(step).filter(|step| *step != 0)?,
         _ => 1,
     };
-    Some(Extent::Literal(((end - start) / step + 1).max(0)))
+    let domain = rumoca_core::StructuredIndexDomain {
+        binders: vec![rumoca_core::StructuredIndexBinder {
+            provenance: rumoca_core::IndexBinderProvenance::Generated,
+            id: 0,
+            display_name: String::new(),
+            lower: start,
+            upper: end,
+            step,
+        }],
+    };
+    Some(Extent::Literal(
+        i64::try_from(domain.scalar_count().ok()?).ok()?,
+    ))
 }
 
 fn integer_literal(expr: &serde_json::Value) -> Option<i64> {
+    if let Some(unary) = expr.get("Unary") {
+        let value = integer_literal(&unary["rhs"])?;
+        return match unary["op"].as_str()? {
+            "Minus" => value.checked_neg(),
+            "Plus" => Some(value),
+            _ => None,
+        };
+    }
     expr.get("Literal")?["value"]["Integer"].as_i64()
 }
 
@@ -310,7 +330,7 @@ fn render_call(call: &Value, cfg: &ExprConfig, indent: &str) -> RenderResult {
 /// declared name), its trailing subscripts stay subscripts (`'y'[i]`).
 fn render_component_ref(comp: &Value, cfg: &ExprConfig) -> RenderResult {
     if let Some(name) = comp.as_str() {
-        return super::emitted_variable_symbol(name, cfg);
+        return render_component_name(name, "", cfg);
     }
     let parts = get_field(comp, "parts")?;
     let count = parts
@@ -336,13 +356,25 @@ fn render_component_ref(comp: &Value, cfg: &ExprConfig) -> RenderResult {
         idents.push(ident.to_string());
         subscripts = subs;
     }
-    let path = idents.join(".");
-    let constant = subscripts.split(", ").all(|sub| sub.parse::<i64>().is_ok());
-    if cfg.scalarize && !subscripts.is_empty() && constant {
+    render_component_name(&idents.join("."), &subscripts, cfg)
+}
+
+fn render_component_name(path: &str, subscripts: &str, cfg: &ExprConfig) -> RenderResult {
+    let dims = cfg.quote_names.as_ref().map_or_else(Vec::new, |variables| {
+        super::base_modelica_scalarize::declared_dims(variables, path)
+    });
+    if cfg.scalarize && !dims.is_empty() {
+        let indices = subscripts.split(", ").collect::<Vec<_>>();
+        if indices.len() != dims.len() || indices.iter().any(|sub| sub.parse::<i64>().is_err()) {
+            return Err(render_err(format!(
+                "cannot scalarize algorithm target `{path}`: a whole-array, symbolic or partial \
+                 access refers to an array replaced by scalar declarations; use the `base-modelica` target"
+            )));
+        }
         let element = format!("{path}[{}]", subscripts.replace(' ', ""));
         return Ok(super::quote_identifier(&element));
     }
-    let base = super::emitted_variable_symbol(&path, cfg)?;
+    let base = super::emitted_variable_symbol(path, cfg)?;
     Ok(if subscripts.is_empty() {
         base
     } else {

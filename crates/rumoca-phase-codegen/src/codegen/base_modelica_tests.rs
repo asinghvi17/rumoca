@@ -179,3 +179,31 @@ fn base_modelica_folds_a_slice_of_fill() {
         assert_eq!(rendered, expected);
     }
 }
+
+#[test]
+fn fill_slice_cardinality_handles_direction_steps_and_overflow() {
+    let integer = |value| serde_json::json!({"Literal": {"value": {"Integer": value}}});
+    let slice = |start, step, end| {
+        Value::from_serialize(serde_json::json!({
+            "base": {"BuiltinCall": {"function": "Fill", "args": [integer(7), integer(3)]}},
+            "subscripts": [{"Expr": {"expr": {"Range": {
+                "start": integer(start), "step": integer(step), "end": integer(end)
+            }}}}]
+        }))
+    };
+    for (start, step, end, count) in [
+        (2, 2, 1, 0),
+        (1, -2, 2, 0),
+        (1, 2, 5, 3),
+        (5, -2, 1, 3),
+        (i64::MIN, i64::MAX, i64::MAX, 3),
+    ] {
+        let folded = base_modelica::fold_fill_slice(&slice(start, step, end))
+            .expect("checked representable range");
+        let json = serde_json::to_value(folded).unwrap();
+        assert_eq!(json["BuiltinCall"]["args"][1], integer(count));
+    }
+    for bounds in [(1, 0, 3), (i64::MIN, 1, i64::MAX)] {
+        assert!(base_modelica::fold_fill_slice(&slice(bounds.0, bounds.1, bounds.2)).is_none());
+    }
+}

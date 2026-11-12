@@ -3,12 +3,12 @@
 //! Two template functions turn Flat equation rows into one scalar equation per
 //! array element, the form a consumer without array support reads:
 //!
-//! * `scalarize_equation(eq, variables)`: an equation over whole arrays
+//! * `scalarize_equation(eq, variables, functions)`: an equation over whole arrays
 //!   (`der(x) = -(a .* x)`) becomes one equation per element when every
 //!   operation in it is elementwise; anything else (a matrix product, a
 //!   reduction over an array argument, a slice, a call taking an array) is
 //!   refused rather than guessed.
-//! * `unroll_family(loop, variables)`: an unmaterialized `for` family (whose
+//! * `unroll_family(loop, variables, functions)`: an unmaterialized `for` family (whose
 //!   Flat rows are placeholders) becomes its template body at every domain
 //!   point, binders substituted and constant subscripts folded to indices.
 //!
@@ -21,15 +21,23 @@ use serde_json::{Value as Json, json};
 
 type Expansion<T> = Result<T, minijinja::Error>;
 
-/// `scalarize_equation(eq, variables)`: the scalar rows of one equation.
-pub(super) fn scalarize_equation_function(eq: Value, variables: Value) -> Expansion<Value> {
+/// `scalarize_equation(eq, variables, functions)`: the scalar rows of one equation.
+pub(super) fn scalarize_equation_function(
+    eq: Value,
+    variables: Value,
+    functions: Value,
+) -> Expansion<Value> {
     let eq = to_json(&eq)?;
-    let rows = scalar_rows(&eq, &variables)?;
+    let rows = scalar_rows(&eq, &variables, &functions)?;
     Ok(Value::from_serialize(rows))
 }
 
-/// `unroll_family(loop, variables)`: the scalar rows of a `for` family row.
-pub(super) fn unroll_family_function(family: Value, variables: Value) -> Expansion<Value> {
+/// `unroll_family(loop, variables, functions)`: the scalar rows of a `for` family row.
+pub(super) fn unroll_family_function(
+    family: Value,
+    variables: Value,
+    functions: Value,
+) -> Expansion<Value> {
     let family = to_json(&family)?;
     let binders = family["binders"]
         .as_array()
@@ -53,7 +61,7 @@ pub(super) fn unroll_family_function(family: Value, variables: Value) -> Expansi
             let mut eq = eq.clone();
             substitute_binders(&mut eq["residual"], point);
             eq["scalar_count"] = json!(1);
-            rows.extend(scalar_rows(&eq, &variables)?);
+            rows.extend(scalar_rows(&eq, &variables, &functions)?);
         }
     }
     Ok(Value::from_serialize(rows))
@@ -100,17 +108,17 @@ fn to_json(value: &Value) -> Expansion<Json> {
 }
 
 /// One equation per element of the equation's array shape (itself if scalar).
-fn scalar_rows(eq: &Json, variables: &Value) -> Expansion<Vec<Json>> {
+fn scalar_rows(eq: &Json, variables: &Value, functions: &Value) -> Expansion<Vec<Json>> {
     let mut eq = eq.clone();
     fold_subscripts(&mut eq["residual"]);
     let residual = &eq["residual"];
-    let Some(shape) = array_shape(residual, variables)? else {
+    let Some(shape) = array_shape(residual, variables, functions)? else {
         return Ok(vec![eq]);
     };
     let mut rows = Vec::new();
     for index in element_indices(&shape) {
         let mut row = eq.clone();
-        row["residual"] = element(residual, &index, variables)?;
+        row["residual"] = element(residual, &index, variables, functions)?;
         row["scalar_count"] = json!(1);
         rows.push(row);
     }
@@ -205,7 +213,7 @@ fn ref_name(var_ref: &Json) -> Option<&str> {
 
 /// The declared dimensions of variable `name` (empty for a scalar or an
 /// undeclared name such as a function input).
-fn declared_dims(variables: &Value, name: &str) -> Vec<usize> {
+pub(super) fn declared_dims(variables: &Value, name: &str) -> Vec<usize> {
     variables
         .get_item(&Value::from(name))
         .ok()
@@ -253,7 +261,7 @@ const ELEMENTWISE_BUILTINS: &[&str] = &[
 
 /// The array shape of `expr` if it is array-valued, `None` if scalar. A
 /// form whose shape is not elementwise-determinable is refused.
-fn array_shape(expr: &Json, variables: &Value) -> Expansion<Option<Vec<usize>>> {
+fn array_shape(expr: &Json, variables: &Value, functions: &Value) -> Expansion<Option<Vec<usize>>> {
     if let Some(var_ref) = expr.get("VarRef") {
         let name = ref_name(var_ref).ok_or_else(|| refusal(expr, "a reference without a name"))?;
         let dims = declared_dims(variables, name);
@@ -278,7 +286,7 @@ fn array_shape(expr: &Json, variables: &Value) -> Expansion<Option<Vec<usize>>> 
     if let Some(array) = expr.get("Array") {
         let elements = array["elements"].as_array().map_or(&[][..], Vec::as_slice);
         let inner = match elements.first() {
-            Some(first) => array_shape(first, variables)?.unwrap_or_else(Vec::new),
+            Some(first) => array_shape(first, variables, functions)?.unwrap_or_else(Vec::new),
             None => Vec::new(),
         };
         let mut shape = vec![elements.len()];
@@ -286,10 +294,12 @@ fn array_shape(expr: &Json, variables: &Value) -> Expansion<Option<Vec<usize>>> 
         return Ok(Some(shape));
     }
     let children: Vec<&Json> = if let Some(binary) = expr.get("Binary") {
-        let lhs = array_shape(&binary["lhs"], variables)?;
-        let rhs = array_shape(&binary["rhs"], variables)?;
+        let lhs = array_shape(&binary["lhs"], variables, functions)?;
+        let rhs = array_shape(&binary["rhs"], variables, functions)?;
         let op = str_field(binary, "op")?;
-        if lhs.is_some() && rhs.is_some() && matches!(op, "Mul" | "Div" | "Exp") {
+        if (lhs.is_some() && rhs.is_some() && matches!(op, "Mul" | "Div"))
+            || (lhs.is_some() && op == "Exp")
+        {
             return Err(refusal(expr, "a matrix operator"));
         }
         vec![&binary["lhs"], &binary["rhs"]]
@@ -301,7 +311,7 @@ fn array_shape(expr: &Json, variables: &Value) -> Expansion<Option<Vec<usize>>> 
             .map_or_else(Vec::new, |a| a.iter().collect());
         let function = str_field(builtin, "function")?;
         if !ELEMENTWISE_BUILTINS.contains(&function) {
-            return no_array_inside(expr, args, variables);
+            return no_array_inside(expr, args, variables, functions);
         }
         args
     } else if let Some(if_expr) = expr.get("If") {
@@ -311,16 +321,17 @@ fn array_shape(expr: &Json, variables: &Value) -> Expansion<Option<Vec<usize>>> 
         }
         children
     } else if let Some(call) = expr.get("FunctionCall") {
+        check_scalar_result(expr, call, functions)?;
         let args = call["args"]
             .as_array()
             .map_or_else(Vec::new, |a| a.iter().collect());
-        return no_array_inside(expr, args, variables);
+        return no_array_inside(expr, args, variables, functions);
     } else {
-        return no_array_inside(expr, Vec::new(), variables);
+        return no_array_inside(expr, Vec::new(), variables, functions);
     };
     let mut shape = None;
     for child in children {
-        if let Some(child_shape) = array_shape(child, variables)? {
+        if let Some(child_shape) = array_shape(child, variables, functions)? {
             if shape
                 .as_ref()
                 .is_some_and(|s: &Vec<usize>| *s != child_shape)
@@ -333,14 +344,42 @@ fn array_shape(expr: &Json, variables: &Value) -> Expansion<Option<Vec<usize>>> 
     Ok(shape)
 }
 
+/// A call's first declared output owns its expression result, independently
+/// of its arguments (MLS §12.4.3).
+fn check_scalar_result(expr: &Json, call: &Json, functions: &Value) -> Expansion<()> {
+    let name = ref_name(call).ok_or_else(|| refusal(expr, "a call without a name"))?;
+    if super::render_expr::resolve_modelica_math_function(name).is_some() {
+        return Ok(());
+    }
+    let function = functions.get_item(&Value::from(name))?;
+    let identity = &call["name"]["resolved_function"]["instance_id"];
+    if identity.is_null() || to_json(&function.get_attr("instance_id")?)? != *identity {
+        return Err(refusal(
+            expr,
+            "a call without a resolved result declaration",
+        ));
+    }
+    let output = function.get_attr("outputs")?.get_item(&Value::from(0))?;
+    if output.is_undefined() {
+        return Err(refusal(expr, "a call without a declared result shape"));
+    }
+    let dimensions = output.get_attr("effective_type")?.get_attr("dimensions")?;
+    let shape_expr = output.get_attr("shape_expr")?;
+    if dimensions.len().is_some_and(|n| n > 0) || shape_expr.len().is_some_and(|n| n > 0) {
+        return Err(refusal(expr, "a function call with an array result"));
+    }
+    Ok(())
+}
+
 /// A call or other form is scalar only if none of its arguments is an array.
 fn no_array_inside(
     expr: &Json,
     args: Vec<&Json>,
     variables: &Value,
+    functions: &Value,
 ) -> Expansion<Option<Vec<usize>>> {
     for arg in args {
-        if array_shape(arg, variables)?.is_some() {
+        if array_shape(arg, variables, functions)?.is_some() {
             return Err(refusal(expr, "a call with an array argument"));
         }
     }
@@ -366,8 +405,8 @@ fn str_field<'a>(node: &'a Json, key: &str) -> Expansion<&'a str> {
 }
 
 /// Element `index` of an elementwise array expression.
-fn element(expr: &Json, index: &[usize], variables: &Value) -> Expansion<Json> {
-    if array_shape(expr, variables)?.is_none() {
+fn element(expr: &Json, index: &[usize], variables: &Value, functions: &Value) -> Expansion<Json> {
+    if array_shape(expr, variables, functions)?.is_none() {
         return Ok(expr.clone());
     }
     if let Some(var_ref) = expr.get("VarRef") {
@@ -382,7 +421,7 @@ fn element(expr: &Json, index: &[usize], variables: &Value) -> Expansion<Json> {
         let item = array["elements"]
             .get(first - 1)
             .ok_or_else(|| refusal(expr, "an array literal of the wrong size"))?;
-        return element(item, rest, variables);
+        return element(item, rest, variables, functions);
     }
     let mut out = expr.clone();
     if let Some(map) = out.as_object_mut()
@@ -396,12 +435,14 @@ fn element(expr: &Json, index: &[usize], variables: &Value) -> Expansion<Json> {
         }
         for key in ["lhs", "rhs", "else_branch"] {
             if let Some(child) = node.get(key).cloned() {
-                node[key] = element(&child, index, variables)?;
+                node[key] = element(&child, index, variables, functions)?;
             }
         }
         for key in ["args", "branches"] {
             if let Some(children) = node.get(key).and_then(Json::as_array).cloned() {
-                node[key] = Json::Array(elements_of_children(&children, key, index, variables)?);
+                node[key] = Json::Array(elements_of_children(
+                    &children, key, index, variables, functions,
+                )?);
             }
         }
     }
@@ -415,16 +456,17 @@ fn elements_of_children(
     key: &str,
     index: &[usize],
     variables: &Value,
+    functions: &Value,
 ) -> Expansion<Vec<Json>> {
     children
         .iter()
         .map(|child| match child.as_array() {
             Some(pair) if key == "branches" => pair
                 .iter()
-                .map(|part| element(part, index, variables))
+                .map(|part| element(part, index, variables, functions))
                 .collect::<Expansion<Vec<_>>>()
                 .map(Json::Array),
-            _ => element(child, index, variables),
+            _ => element(child, index, variables, functions),
         })
         .collect()
 }

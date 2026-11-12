@@ -324,6 +324,91 @@ end MatMul;
 }
 
 #[test]
+fn scalar_target_refuses_matrix_power_with_a_scalar_exponent() {
+    for exponent in [2, 0, 1] {
+        let source = format!(
+            "model MatPower
+  Real A[2,2] = {{{{1,2}},{{3,4}}}};
+  Real y[2,2];
+equation
+  y = A^{exponent};
+end MatPower;"
+        );
+        let error = render(&source, "MatPower", "base-modelica-scalar")
+            .expect_err("matrix power must not become elementwise power");
+        assert!(error.contains("matrix operator"), "{error}");
+        recompiles(&render_ok(&source, "MatPower", "base-modelica"), "MatPower");
+    }
+}
+
+#[test]
+fn scalar_target_refuses_array_results_from_scalar_function_arguments() {
+    let source = "model ArrayResult
+  function f
+    input Real u;
+    output Real v[2];
+  algorithm
+    v := {u, 2*u};
+  end f;
+  Real y[2];
+equation
+  y = f(time);
+end ArrayResult;";
+    let error = render(source, "ArrayResult", "base-modelica-scalar")
+        .expect_err("an array result cannot be assigned to each scalar element");
+    assert!(error.contains("array result"), "{error}");
+    recompiles(
+        &render_ok(source, "ArrayResult", "base-modelica"),
+        "ArrayResult",
+    );
+}
+
+#[test]
+fn scalar_target_refuses_symbolic_algorithm_array_targets() {
+    let source = "model AlgorithmArray
+  Real y[2];
+algorithm
+  for i in 1:2 loop
+    y[i] := time;
+  end for;
+end AlgorithmArray;";
+    let error = render(source, "AlgorithmArray", "base-modelica-scalar")
+        .expect_err("symbolic targets must not refer to removed array declarations");
+    assert!(error.contains("cannot scalarize"), "{error}");
+    recompiles(
+        &render_ok(source, "AlgorithmArray", "base-modelica"),
+        "AlgorithmArray",
+    );
+}
+
+#[test]
+fn empty_nonunit_fill_slice_keeps_zero_extent() {
+    for range in ["2:2:1", "1:-2:2"] {
+        let source = format!(
+            "model EmptySlice
+  Real x[0](start=(fill(7,3))[{range}]);
+end EmptySlice;"
+        );
+        let out = render_ok(&source, "EmptySlice", "base-modelica");
+        assert!(out.contains("start = fill(7, 0)"), "{out}");
+        recompiles(&out, "EmptySlice");
+    }
+}
+
+#[test]
+fn scalar_target_preserves_elementwise_power() {
+    let source = "model ElementPower
+  Real A[2,2] = {{1,2},{3,4}};
+  Real y[2,2];
+equation
+  y = A.^2;
+end ElementPower;";
+    let out = render_ok(source, "ElementPower", "base-modelica-scalar");
+    assert!(out.contains("'y[1,2]' = ('A[1,2]' ^ 2);"), "{out}");
+    recompiles(&out, "ElementPower");
+}
+
+#[test]
 fn enumerations_are_package_types_with_quoted_literal_paths() {
     let source = "package Types
   type Mode = enumeration(Off, On);

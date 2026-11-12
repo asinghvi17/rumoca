@@ -401,3 +401,33 @@ fn marked_output_recompiles_through_the_compiler() {
         }
     }
 }
+
+/// A scalar argument does not make an array-valued function call scalar
+/// (MLS §12.4, §10.1). Its start value must retain the function's result shape.
+#[test]
+fn an_array_function_start_value_keeps_its_return_shape() {
+    let source = r#"
+function init
+  input Real seed;
+  output Real result[2];
+algorithm
+  result := {seed, seed + 1.0};
+end init;
+model ArrayFunctionStart
+  Real y[2](start = init(1.0));
+equation
+  der(y) = -y;
+end ArrayFunctionStart;
+"#;
+    let out = render(source, "ArrayFunctionStart", "base-modelica");
+    let declaration = out
+        .lines()
+        .find(|line| line.contains("Real 'y'[2]"))
+        .unwrap_or_else(|| panic!("missing array declaration:\n{out}"));
+    assert!(declaration.contains("start = 'init'(1.0)"), "{out}");
+    assert!(!declaration.contains("fill("), "{out}");
+    Compiler::new()
+        .model("'ArrayFunctionStart'.'ArrayFunctionStart'")
+        .compile_str(&out, "ArrayFunctionStart.bmo")
+        .unwrap_or_else(|error| panic!("array function start recompiles: {error:#}\n{out}"));
+}

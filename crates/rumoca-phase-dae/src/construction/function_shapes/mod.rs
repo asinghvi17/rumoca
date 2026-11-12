@@ -2164,6 +2164,50 @@ fn resolve_certificate(
     })
 }
 
+/// Shapes provable without a call's input values or argument extents.
+///
+/// This is a best-effort scope for checking unexecuted assignments, never a
+/// function specialization. Unsettled declarations stay absent; fixed shapes
+/// and immutable local defaults use the ordinary declaration/evaluation rules.
+pub(in crate::construction) fn call_free_fixed_function_shapes(
+    function: &rumoca_core::Function,
+) -> ShapeEnvironment {
+    let local_start = function.inputs.len() + function.outputs.len();
+    let mut values = ShapeEnvironment::with_capacity(local_start + function.locals.len());
+    let assigned = assigned_function_targets(&function.body);
+    for (ordinal, value) in function
+        .inputs
+        .iter()
+        .chain(&function.outputs)
+        .chain(&function.locals)
+        .enumerate()
+    {
+        let Ok(shape) = resolve_declared_shape(value, None, None, &values) else {
+            continue;
+        };
+        let fixed_default =
+            (ordinal >= local_start && shape.is_empty() && !assigned.contains(&value.name))
+                .then(|| {
+                    value
+                        .default
+                        .as_ref()
+                        .and_then(|expr| values.proven_value(expr))
+                })
+                .flatten();
+        let name = VarName::new(&value.name);
+        match fixed_default {
+            Some(ProvenValue::Integer(value)) => {
+                values.bind_scalar_value(name, EvalValue::Integer(value));
+            }
+            Some(ProvenValue::Boolean(value)) => {
+                values.bind_scalar_value(name, EvalValue::Bool(value));
+            }
+            _ => values.insert(name, shape),
+        }
+    }
+    values
+}
+
 fn resolve_declared_shape(
     value: &rumoca_core::FunctionParam,
     actual: Option<&ValueShape>,

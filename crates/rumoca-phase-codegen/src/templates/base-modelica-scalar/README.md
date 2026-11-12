@@ -20,15 +20,18 @@ conversion reads only scalar component references).
 ## Unsupported
 
 An equation or attribute whose array value cannot be split element by element
-at render time (a whole-array reference inside an equation, an array-valued
-call) fails rendering with `cannot scalarize ...`; use `base-modelica` for
-such models.
+at render time (a matrix product or power, or a call with an array result)
+fails rendering with `cannot scalarize ...`. Algorithm targets must select
+every array dimension with constant indices; whole-array, partial and symbolic
+targets are refused. Use `base-modelica` for such models.
 
 ## Verification
 
 - `suite_core::base_modelica_target` covers scalarized declarations, unrolled
   `for` families, split elementwise equations and the refusal of a matrix
-  product; `codegen::base_modelica_tests` covers the element enumeration.
+  product or power, array function results and symbolic algorithm targets;
+  `codegen::base_modelica_tests` covers the element enumeration and checked
+  slice cardinality.
 
 ## Example
 

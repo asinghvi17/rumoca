@@ -56,17 +56,10 @@
 {%- if var.causality is mapping and var.causality.Output is defined and "." not in name %}output {% endif -%}
 {%- endmacro -%}
 
-{#- Whether `expr` is an unsubscripted reference to an array variable, an
-    array value that is not spread with `fill`. -#}
-{%- macro array_ref(expr) -%}
-{%- if expr is mapping and "VarRef" in expr and not expr.VarRef.subscripts and expr.VarRef.name.name in flat.variables and flat.variables[expr.VarRef.name.name].dims | length > 0 -%}yes{%- endif -%}
-{%- endmacro -%}
-
 {#- One attribute modifier of a whole declaration. MCP-0031 has no `each`, so
     a scalar value on an array variable is spread with `fill`. -#}
-{%- macro mod(var, key, value, expr=none) -%}
-{%- set array_valued = value[:1] in ["{", "["] or value[:5] == "fill(" or value[:6] == "zeros(" or value[:5] == "ones(" or array_ref(expr) -%}
-{%- if var.dims | length > 0 and not array_valued -%}
+{%- macro mod(var, key, value, each=false) -%}
+{%- if var.dims | length > 0 and each -%}
 {{ key }} = fill({{ value }}, {{ var.dims | join(", ") }})
 {%- else -%}
 {{ key }} = {{ value }}
@@ -108,7 +101,7 @@
 {%- for key in ["min", "max", "start", "nominal"] -%}
 {%- if var[key] is not none and not (key == "start" and skip_start) -%}
 {%- if index is none -%}
-{%- set ns.parts = ns.parts + [mod(var, key, render_expr(var[key], cfg), var[key])] -%}
+{%- set ns.parts = ns.parts + [mod(var, key, render_expr(var[key], cfg), flat_source_attribute_shape(var.instance_id, key).each if var.dims | length > 0 else false)] -%}
 {%- else -%}
 {%- set ns.parts = ns.parts + [key ~ " = " ~ render_expr(array_element(var[key], index, flat.variables), cfg)] -%}
 {%- endif -%}
@@ -116,13 +109,13 @@
 {%- endfor -%}
 {%- if var.fixed is not none -%}
 {%- if index is none and var.fixed | length == 1 -%}
-{%- set ns.parts = ns.parts + [mod(var, "fixed", fixed_value(var))] -%}
+{%- set ns.parts = ns.parts + [mod(var, "fixed", fixed_value(var), true)] -%}
 {%- else -%}
 {%- set ns.parts = ns.parts + ["fixed = " ~ fixed_value(var, index)] -%}
 {%- endif -%}
 {%- endif -%}
 {%- if var.state_select and var.state_select != "Default" -%}
-{%- set ns.parts = ns.parts + [mod(var, "stateSelect", "StateSelect." ~ (var.state_select | lower)) if index is none else "stateSelect = StateSelect." ~ (var.state_select | lower)] -%}
+{%- set ns.parts = ns.parts + [mod(var, "stateSelect", "StateSelect." ~ (var.state_select | lower), true) if index is none else "stateSelect = StateSelect." ~ (var.state_select | lower)] -%}
 {%- endif -%}
 {%- if ns.parts %}({{ ns.parts | join(", ") }}){% endif -%}
 {%- endmacro -%}
@@ -265,7 +258,7 @@
 {%- macro equation_rows(rows) -%}
 {%- for row in rows %}
 {%- if scalarize and "loop" in row %}
-{%- for eq in unroll_family(row.loop, flat.variables) %}
+{%- for eq in unroll_family(row.loop, flat.variables, flat.functions) %}
     {{ render_flat_equation(eq, cfg) }};
 {%- endfor %}
 {%- elif "loop" in row %}
@@ -282,7 +275,7 @@
 {#- A record-valued equation on a flattened record is its field equations
     (MLS §8.3.1). #}
 {%- for field_eq in record_field_equations(row.equation, flat.record_instances, flat.record_types, flat.functions) %}
-{%- for eq in (scalarize_equation(field_eq, flat.variables) if scalarize else [field_eq]) %}
+{%- for eq in (scalarize_equation(field_eq, flat.variables, flat.functions) if scalarize else [field_eq]) %}
     {{ render_flat_equation(eq, cfg) }};
 {%- endfor %}
 {%- endfor %}

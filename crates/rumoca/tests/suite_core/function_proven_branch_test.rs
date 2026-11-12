@@ -267,7 +267,7 @@ end DeadArmShapeError;
 /// assigns a `[2, mBase]` value to a `[mBase, mBase]` target. In the generic
 /// function both are run-time sizes (MLS §10.6), so for `m = 3` the mismatch is
 /// the run-time check of an arm that never runs, not an ill-formed statement.
-/// Only a rank mismatch, which no value can change, is still rejected there.
+/// Fixed extent and rank mismatches remain errors in every arm.
 #[test]
 fn a_dead_arm_extent_the_specialization_contradicts_stays_accepted() {
     let source = r#"
@@ -298,6 +298,77 @@ end DeadArmExtent;
     close(algebraic(&report, "a[1,1]"), 1.0, "a[1,1]");
     close(algebraic(&report, "a[2,3]"), 6.0, "a[2,3]");
     close(algebraic(&report, "a[3,2]"), 6.0, "a[3,2]");
+}
+
+fn reject_overwritten_extent_error(condition: &str, scratch_extent: &str) {
+    let source = format!(
+        r#"
+within;
+function extentcheck
+  input Integer m;
+  input Real u;
+  output Real y[m];
+protected
+  Real scratch[{scratch_extent}];
+algorithm
+  if {condition} then
+    scratch := {{1.0, 2.0}};
+    scratch := {{3.0, 4.0, 5.0}};
+    y := scratch;
+  else
+    y := {{3.0, 4.0, 5.0}};
+  end if;
+end extentcheck;
+model OverwrittenExtentError
+  Real a[3];
+equation
+  a = extentcheck(3, time);
+end OverwrittenExtentError;
+"#
+    );
+    let error = Compiler::new()
+        .model("OverwrittenExtentError")
+        .compile_str(&source, "OverwrittenExtentError.mo")
+        .expect_err("overwriting an assignment cannot erase its extent error");
+    let rumoca::CompilerError::CompileDiagnosticsError { failures, .. } = error else {
+        panic!("expected a typed DAE diagnostic: {error:?}");
+    };
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    let failure = &failures[0];
+    assert_eq!(failure.error_code.as_deref(), Some("ED019"));
+    assert!(
+        failure
+            .error
+            .contains("assigns a value of shape [2] to a target of shape [3]"),
+        "unexpected diagnostic: {failure:?}"
+    );
+    let span = failure
+        .primary_label
+        .as_ref()
+        .expect("assignment span")
+        .span;
+    let assignment = source.find("scratch := {1.0, 2.0}").unwrap();
+    assert!(span.start.0 <= assignment && assignment < span.end.0);
+}
+
+#[test]
+fn a_runtime_arm_overwritten_fixed_extent_error_is_rejected() {
+    reject_overwritten_extent_error("u > 0.0", "3");
+}
+
+#[test]
+fn a_runtime_arm_overwritten_specialized_extent_error_is_rejected() {
+    reject_overwritten_extent_error("u > 0.0", "m");
+}
+
+#[test]
+fn a_selected_arm_overwritten_extent_error_is_rejected() {
+    reject_overwritten_extent_error("m == 3", "3");
+}
+
+#[test]
+fn a_dead_arm_overwritten_fixed_extent_error_is_rejected() {
+    reject_overwritten_extent_error("m == 2", "3");
 }
 
 /// The other side of the same rule: an unexecuted branch owes no *proof*, only

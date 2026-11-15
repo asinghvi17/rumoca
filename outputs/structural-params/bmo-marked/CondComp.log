@@ -1,6 +1,0 @@
-[rumoca] warning[WD001]: this component condition is decided at translation, so parameter useDamper cannot be set: the component exists or not by its value (MLS 3.7 §4.4.5) (CondComp.mo:10:17)
-Compiling target 'base-modelica' for CondComp
-  Base Modelica (MCP-0031) interchange output from flat IR
-  wrote <tmp>/out/CondComp.bmo
-
-Target sources compiled to: <tmp>/out

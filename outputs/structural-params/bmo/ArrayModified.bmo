@@ -1,9 +1,0 @@
-//! base 0.1.0
-package 'ArrayModified'
-  model 'ArrayModified'
-    parameter Integer 's.n' = 4;
-    Real 's.x'[4](start = fill(1, 4), fixed = fill(true, 4));
-  equation
-    der('s.x') = (-'s.x');
-  end 'ArrayModified';
-end 'ArrayModified';

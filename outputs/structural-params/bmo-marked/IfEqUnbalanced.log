@@ -1,6 +1,0 @@
-[rumoca] warning[WD001]: the branch of this equation is selected at translation, so parameter withY cannot be set: its branches differ in structure (MLS 3.7 §8.3.4) (IfEqUnbalanced.mo:7:6)
-Compiling target 'base-modelica' for IfEqUnbalanced
-  Base Modelica (MCP-0031) interchange output from flat IR
-  wrote <tmp>/out/IfEqUnbalanced.bmo
-
-Target sources compiled to: <tmp>/out

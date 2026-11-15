@@ -1,2 +1,0 @@
-[rumoca] warning[WD001]: this array dimension is fixed at translation, so parameter n cannot be set (MLS 3.7 §10.1) (ArraySize.mo:3:3)
-[rumoca] warning[WD001]: this for-equation range is fixed at translation, so parameter n cannot be set (MLS 3.7 §8.3.3) (ArraySize.mo:5:7)

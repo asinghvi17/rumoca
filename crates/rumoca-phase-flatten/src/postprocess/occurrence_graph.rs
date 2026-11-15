@@ -48,6 +48,7 @@ pub(crate) enum PathCursor {
 
 /// Exact occurrence lookup for one flat model.
 pub(crate) struct OccurrenceGraph {
+    aliases: FxHashMap<(InstanceId, DefId), DefId>,
     occurrences: FxHashMap<InstanceId, Occurrence>,
     members: FxHashMap<InstanceId, Vec<InstanceId>>,
 }
@@ -71,6 +72,15 @@ impl OccurrenceGraph {
             }
         }
         Self {
+            aliases: flat
+                .member_declaration_aliases
+                .iter()
+                .flat_map(|(scope, aliases)| {
+                    aliases
+                        .iter()
+                        .map(move |(source, target)| ((*scope, *source), *target))
+                })
+                .collect(),
             occurrences,
             members,
         }
@@ -209,6 +219,11 @@ impl OccurrenceGraph {
         if depth > MAX_INHERITED_SCOPE_DEPTH {
             return None;
         }
+        let declaration = self
+            .aliases
+            .get(&(scope, declaration))
+            .copied()
+            .unwrap_or(declaration);
         let members = self.members.get(&scope)?;
         let declared: Vec<&Occurrence> = members
             .iter()
@@ -251,5 +266,58 @@ impl OccurrenceGraph {
                 .iter()
                 .all(|occurrence| !occurrence.indices.is_empty()))
         .then_some(PathCursor::PendingIndices { scope, declaration })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn declaration_aliases_select_array_elements_only_in_the_issuing_scope() {
+        let mut model = flat::Model::default();
+        for scope in [InstanceId::new(0), InstanceId::new(3)] {
+            model.instance_relations.insert(
+                scope,
+                flat::InstanceRelation {
+                    owner: None,
+                    declaration: Some(DefId::new(1)),
+                    indices: Box::default(),
+                    kind: flat::InstanceKind::Class,
+                },
+            );
+        }
+        for (id, scope, index) in [(1, 0, 1), (2, 0, 2), (4, 3, 1)] {
+            model.instance_relations.insert(
+                InstanceId::new(id),
+                flat::InstanceRelation {
+                    owner: Some(InstanceId::new(scope)),
+                    declaration: Some(DefId::new(11)),
+                    indices: vec![index].into_boxed_slice(),
+                    kind: flat::InstanceKind::Materialized,
+                },
+            );
+        }
+        model
+            .member_declaration_aliases
+            .entry(InstanceId::new(0))
+            .or_default()
+            .insert(DefId::new(10), DefId::new(11));
+        let graph = OccurrenceGraph::build(&model);
+        let selected = graph
+            .select_member(PathCursor::At(InstanceId::new(0)), DefId::new(10), &[])
+            .unwrap();
+        assert!(
+            matches!(selected, PathCursor::PendingIndices { declaration, .. } if declaration == DefId::new(11))
+        );
+        assert!(
+            matches!(graph.apply_indices(selected, &[2]), Some(PathCursor::At(id)) if id == InstanceId::new(2))
+        );
+        assert!(graph.apply_indices(selected, &[3]).is_none());
+        assert!(
+            graph
+                .select_member(PathCursor::At(InstanceId::new(3)), DefId::new(10), &[1])
+                .is_none()
+        );
     }
 }

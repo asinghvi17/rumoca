@@ -51,6 +51,7 @@ mod final_modifier_tests;
 mod inheritance;
 mod inner_outer;
 mod instance_sections;
+mod member_declaration_aliases;
 mod mod_env;
 mod nested_scope;
 mod package_constant_imports;
@@ -1020,6 +1021,7 @@ fn instantiate_class(
         sections.parameter_branch_selections.extend(conditions);
 
         let class_data = ast::ClassInstanceData {
+            member_declaration_aliases: template.member_declaration_aliases.clone(),
             instance_id,
             owner_component_id,
             class_def_id: class.def_id,

@@ -17,6 +17,8 @@ use crate::inheritance::{
 /// apply per-instance modifications.
 #[derive(Debug, Clone)]
 pub struct ClassTemplate {
+    /// Duplicate declarations canonicalized within this effective class.
+    pub member_declaration_aliases: IndexMap<DefId, DefId>,
     /// Effective components after inheritance resolution (inherited + own).
     pub effective_components: IndexMap<String, ast::Component>,
     /// Effective equations after inheritance resolution (inherited + own).
@@ -72,6 +74,12 @@ pub(crate) fn get_or_compute_template(
     let effective_equations =
         get_effective_equations_with_cache(tree, class, &mut inheritance_cache)?;
 
+    let member_declaration_aliases = crate::member_declaration_aliases::for_template(
+        &effective_components,
+        &inherited.components,
+        &inherited.member_declaration_equivalences,
+    );
+
     let mut initial_equations = inherited.initial_equations;
     initial_equations.extend(class.initial_equations.clone());
 
@@ -84,6 +92,7 @@ pub(crate) fn get_or_compute_template(
     let resolved_imports = collect_all_imports(tree, class);
 
     let template = Arc::new(ClassTemplate {
+        member_declaration_aliases,
         effective_components,
         effective_equations,
         initial_equations,
@@ -222,6 +231,7 @@ mod tests {
 
     fn empty_template() -> Arc<ClassTemplate> {
         Arc::new(ClassTemplate {
+            member_declaration_aliases: IndexMap::default(),
             effective_components: IndexMap::default(),
             effective_equations: Vec::new(),
             initial_equations: Vec::new(),

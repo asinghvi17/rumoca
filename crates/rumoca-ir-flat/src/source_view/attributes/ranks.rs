@@ -53,6 +53,54 @@ impl SourceAttributeCatalog<'_> {
         }
     }
 
+    /// Positive lower bounds prove arrayness without inventing an exact rank.
+    /// In particular, vectorization can add axes to an array-returning call.
+    pub(super) fn array_rank_lower_bound(&self, expression: &Expression) -> Option<usize> {
+        let rank = match expression {
+            Expression::FunctionCall { name, args, .. } => {
+                let function = self.functions.get(&name.resolved_function()?.instance_id)?;
+                if args.len() > function.inputs.len()
+                    || function.inputs[args.len()..]
+                        .iter()
+                        .any(|input| input.default.is_none())
+                {
+                    return None;
+                }
+                function.outputs.first()?.dimensions().len()
+            }
+            Expression::Array { kind, .. } => {
+                if kind.concatenation_axis().is_some() {
+                    2
+                } else {
+                    1
+                }
+            }
+            Expression::BuiltinCall {
+                function: BuiltinFunction::Fill,
+                args,
+                ..
+            } if args.len() > 1 => args.len() - 1,
+            Expression::Index {
+                base, subscripts, ..
+            } => {
+                // Scalar selectors remove axes; colons and known vector
+                // selectors retain them. Unknown selectors remove at most one.
+                let removed = subscripts
+                    .iter()
+                    .filter(|subscript| match subscript {
+                        Subscript::Colon { .. } => false,
+                        Subscript::Expr { expr, .. } => self.rank(expr) != Some(1),
+                        Subscript::Index { .. } => true,
+                    })
+                    .count();
+                self.array_rank_lower_bound(base)?.checked_sub(removed)?
+            }
+            Expression::Unary { rhs, .. } => self.array_rank_lower_bound(rhs)?,
+            _ => return None,
+        };
+        (rank > 0).then_some(rank)
+    }
+
     fn reference_rank(&self, name: &Reference) -> Option<usize> {
         // MLS §4.9.5: a literal belongs to the enum declaration Resolve
         // selected, independently of the enclosing instance's scope identity.

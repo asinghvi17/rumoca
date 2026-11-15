@@ -66,6 +66,40 @@ fn modifier_binding_scope(
         })
 }
 
+fn attach_variable_scopes(
+    variable: &mut flat::Variable,
+    instance_data: &rumoca_ir_ast::InstanceData,
+    scope_index: &OverlayScopeIndex<'_>,
+) -> Result<(), FlattenError> {
+    let declaration_scope = instance_data
+        .owner_class_id
+        .ok_or_else(|| FlattenError::internal("Flat variable has no instantiated class owner"))?;
+    let binding_scope = modifier_binding_scope(instance_data, scope_index, variable.source_span)?
+        .unwrap_or(declaration_scope);
+    if let Some(expression) = variable.binding.as_mut() {
+        attach_reference_scope(expression, binding_scope)?;
+    }
+    for (attribute, expression) in [
+        ("start", variable.start.as_mut()),
+        ("min", variable.min.as_mut()),
+        ("max", variable.max.as_mut()),
+        ("nominal", variable.nominal.as_mut()),
+    ]
+    .into_iter()
+    .filter_map(|(attribute, expression)| expression.map(|expression| (attribute, expression)))
+    {
+        // Modifier values retain the instance where they were written, just
+        // like bindings. Lexical type/package scopes have no runtime body.
+        let attribute_scope = instance_data
+            .attribute_source_scopes
+            .get(attribute)
+            .and_then(|scope| scope_index.class_occurrence(scope))
+            .unwrap_or(declaration_scope);
+        attach_reference_scope(expression, attribute_scope)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn process_component_instance(
     request: ComponentInstanceProcess<'_, '_>,
 ) -> Result<(), FlattenError> {
@@ -117,30 +151,7 @@ pub(crate) fn process_component_instance(
         request.class_index,
         &import_context,
     )?;
-    let declaration_scope = request
-        .instance_data
-        .owner_class_id
-        .ok_or_else(|| FlattenError::internal("Flat variable has no instantiated class owner"))?;
-    let binding_scope = modifier_binding_scope(
-        request.instance_data,
-        request.scope_index,
-        flat_var.source_span,
-    )?
-    .unwrap_or(declaration_scope);
-    if let Some(expression) = flat_var.binding.as_mut() {
-        attach_reference_scope(expression, binding_scope)?;
-    }
-    for expression in [
-        &mut flat_var.start,
-        &mut flat_var.min,
-        &mut flat_var.max,
-        &mut flat_var.nominal,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        attach_reference_scope(expression, declaration_scope)?;
-    }
+    attach_variable_scopes(&mut flat_var, request.instance_data, request.scope_index)?;
     let instance_scope = request.instance_data.qualified_name.to_component_path();
     let (override_packages, override_functions) =
         override_context_for_component_path(&instance_scope, request.component_override_map);

@@ -73,6 +73,8 @@ pub fn type_names_match(tree: &ast::ClassTree, name_a: &str, name_b: &str) -> bo
 /// Result of processing inheritance for a class.
 #[derive(Debug, Clone, Default)]
 pub struct InheritedContent {
+    /// Declaration equivalences established while merging inherited members.
+    pub member_declaration_equivalences: Vec<(DefId, DefId)>,
     /// Components inherited from all base classes.
     pub components: IndexMap<String, ast::Component>,
     /// Equations inherited from all base classes.
@@ -1134,6 +1136,9 @@ fn merge_inherited(
     // MLS §5.6.1.4 collapses same-named elements from several bases into one,
     // so identity is decided on the merged class, not on each base in isolation.
     let merged = merged_element_names(target, &base);
+    target
+        .member_declaration_equivalences
+        .extend(base.member_declaration_equivalences);
 
     // Merge components, checking for conflicts
     for (name, comp) in base.components {
@@ -1156,6 +1161,11 @@ fn merge_inherited(
                     )?,
                 )));
             }
+            crate::member_declaration_aliases::record_equivalence(
+                &mut target.member_declaration_equivalences,
+                comp.def_id,
+                existing.def_id,
+            );
             // Compatible - diamond inheritance is OK, keep existing
         } else {
             let mut inherited_comp = comp;
@@ -1460,6 +1470,11 @@ fn merge_class_content(
                     )?,
                 )));
             }
+            crate::member_declaration_aliases::record_equivalence(
+                &mut target.member_declaration_equivalences,
+                comp.def_id,
+                existing.def_id,
+            );
             // Compatible - diamond inheritance is OK, keep existing
         } else {
             let mut inherited_comp = comp.clone();

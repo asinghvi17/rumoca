@@ -9,6 +9,16 @@ pub(crate) fn transfer_instance_relations(
     overlay: &InstanceOverlay,
 ) -> Result<(), FlattenError> {
     for class in overlay.classes.values() {
+        if !class.member_declaration_aliases.is_empty() {
+            flat.member_declaration_aliases.insert(
+                class.instance_id,
+                class
+                    .member_declaration_aliases
+                    .iter()
+                    .map(|(source, target)| (*source, *target))
+                    .collect(),
+            );
+        }
         insert_relation(
             flat,
             class.instance_id,

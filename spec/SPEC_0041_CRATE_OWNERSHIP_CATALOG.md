@@ -321,4 +321,14 @@ array-construction axes are reused without evaluating dimension sizes.
 Call rank includes vectorization axes beyond declared input ranks; colon sizes
 and omitted defaulted inputs do not require literal extents. Unknown ranks
 refuse the requested attribute. Extent compatibility remains owned by typecheck.
+Flattening retains each modifier attribute's recorded writing instance and
+canonicalizes a selected value's base independently of its retained selectors.
 No rendered delimiter/name heuristic or numerical Solve admission is introduced.
+
+Instantiation retains the declaration equivalences established by validated
+inheritance merges (MLS §5.6.1.4), canonicalized to each effective class's
+surviving members. Flat transfers these occurrence-scoped aliases unchanged;
+its occurrence graph follows them by `DefId`, including array selections.
+Presentation may use a declared array output as a positive rank lower bound
+when exact argument/vectorization rank is unavailable; it must not treat that
+lower bound as an exact rank when selecting subscripts.

@@ -661,6 +661,21 @@ impl ExpressionRewriter for CollapseIndexRewriter<'_> {
             {
                 return collapsed;
             }
+            // A value-array slice need not identify a separate occurrence.
+            // Canonicalize its base by scope/declaration identity while
+            // retaining the selectors, including symbolic ranges and colons.
+            if !subscripts.is_empty()
+                && let Some(rumoca_core::Expression::VarRef { name, .. }) = self
+                    .known_flat_vars
+                    .reference_cursor(name, &[])
+                    .and_then(|cursor| self.known_flat_vars.cursor_expression(cursor, *span))
+            {
+                return rumoca_core::Expression::VarRef {
+                    name,
+                    subscripts: self.rewrite_subscripts(subscripts),
+                    span: *span,
+                };
+            }
         }
         if let rumoca_core::Expression::FieldAccess {
             base,

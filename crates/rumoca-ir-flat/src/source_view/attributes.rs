@@ -26,7 +26,7 @@ pub enum SourceAttributeKind {
 pub struct SourceAttributeValue<'model> {
     kind: SourceAttributeKind,
     expression: &'model Expression,
-    rank: usize,
+    minimum_rank: usize,
     each: bool,
 }
 
@@ -37,8 +37,10 @@ impl<'model> SourceAttributeValue<'model> {
     pub fn expression(&self) -> &'model Expression {
         self.expression
     }
-    pub fn rank(&self) -> usize {
-        self.rank
+    /// Zero proves scalar; a positive lower bound proves an array.
+    /// Exact vectorization rank need not be available for this presentation.
+    pub fn minimum_rank(&self) -> usize {
+        self.minimum_rank
     }
     pub fn each(&self) -> bool {
         self.each
@@ -132,8 +134,9 @@ impl<'model> SourceAttributeCatalog<'model> {
         let Some(expression) = expression else {
             return Ok(None);
         };
-        let rank = self
+        let minimum_rank = self
             .rank(expression)
+            .or_else(|| self.array_rank_lower_bound(expression))
             .ok_or(SourceAttributeError::UnknownShape {
                 variable: instance,
                 attribute: kind,
@@ -142,8 +145,8 @@ impl<'model> SourceAttributeCatalog<'model> {
         Ok(Some(SourceAttributeValue {
             kind,
             expression,
-            rank,
-            each: !variable.dims.is_empty() && rank == 0,
+            minimum_rank,
+            each: !variable.dims.is_empty() && minimum_rank == 0,
         }))
     }
 }

@@ -723,6 +723,9 @@ impl Default for InstanceData {
 /// Instance data for a class/model.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClassInstanceData {
+    /// Validated duplicate declarations and their surviving effective member.
+    #[serde(default)]
+    pub member_declaration_aliases: IndexMap<DefId, DefId>,
     /// Unique identifier for this class instance.
     pub instance_id: InstanceId,
     /// Exact structured component occurrence whose type instantiated this

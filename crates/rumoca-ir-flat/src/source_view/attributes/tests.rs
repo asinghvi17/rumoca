@@ -68,7 +68,7 @@ fn scalar_attributes_issue_each_only_on_array_occurrences_and_preserve_values() 
         let catalog = model.source_attributes().unwrap();
         let value = start(&catalog);
         assert_eq!(value.kind(), SourceAttributeKind::Start);
-        assert_eq!(value.rank(), 0);
+        assert_eq!(value.minimum_rank(), 0);
         assert_eq!(value.each(), !dimensions.is_empty());
         assert!(std::ptr::eq(
             value.expression(),
@@ -95,7 +95,7 @@ fn reference_rank_comes_from_exact_finalized_occurrence_without_rechecking_exten
             dimensions.clone(),
         );
         let catalog = model.source_attributes().unwrap();
-        assert_eq!(start(&catalog).rank(), dimensions.len());
+        assert_eq!(start(&catalog).minimum_rank(), dimensions.len());
         assert_eq!(start(&catalog).each(), dimensions.is_empty());
     }
 }
@@ -191,7 +191,7 @@ fn enumeration_literals_require_resolved_declaration_and_member_identity() {
         let result = catalog.attribute(InstanceId::new(1), SourceAttributeKind::Start);
         if expected {
             let value = result.unwrap().unwrap();
-            assert_eq!(value.rank(), 0);
+            assert_eq!(value.minimum_rank(), 0);
             assert!(value.each());
         } else {
             assert!(matches!(
@@ -257,7 +257,7 @@ fn calls_use_exact_callable_rank_with_defaults_colons_and_vectorization() {
             let catalog = model.source_attributes().unwrap();
             let result = catalog.attribute(InstanceId::new(1), SourceAttributeKind::Start);
             if selected == Some(instance_id) {
-                assert_eq!(result.unwrap().unwrap().rank(), expected);
+                assert_eq!(result.unwrap().unwrap().minimum_rank(), expected);
             } else {
                 assert!(matches!(
                     result,
@@ -353,7 +353,7 @@ fn symbolic_sizes_and_subscripted_elements_have_value_independent_rank() {
     ] {
         let model = model(vec![2], expression, vec![2]);
         let catalog = model.source_attributes().unwrap();
-        assert_eq!(start(&catalog).rank(), expected);
+        assert_eq!(start(&catalog).minimum_rank(), expected);
         assert!(!start(&catalog).each());
     }
 }
@@ -403,7 +403,7 @@ fn structured_and_outer_subscripts_preserve_only_unselected_axes() {
                 };
                 let model = model(vec![2], expression, dims.clone());
                 let catalog = model.source_attributes().unwrap();
-                assert_eq!(start(&catalog).rank(), expected);
+                assert_eq!(start(&catalog).minimum_rank(), expected);
                 assert_eq!(start(&catalog).each(), expected == 0);
             }
         }
@@ -432,7 +432,7 @@ fn field_access_uses_resolved_field_identity_and_retains_container_rank() {
             },
         );
         let catalog = model.source_attributes().unwrap();
-        assert_eq!(start(&catalog).rank(), 1);
+        assert_eq!(start(&catalog).minimum_rank(), 1);
     }
     let component = ComponentReference::construct(
         false,
@@ -473,4 +473,67 @@ fn catalog_rejects_stale_effective_shape_and_duplicate_occurrence() {
         .unwrap()
         .instance_id = InstanceId::new(1);
     assert!(model.source_attributes().is_err());
+}
+
+#[test]
+fn array_return_proves_arrayness_without_assuming_exact_vectorization_rank() {
+    for output_dims in [vec![], vec![2], vec![2, 2]] {
+        let mut function = Function::new("init", span());
+        function.inputs.push(FunctionParam::new(
+            "u",
+            "Real",
+            EffectiveType::new(TypeId::new(10), TypeId::new(10), vec![]).unwrap(),
+            span(),
+        ));
+        function.outputs.push(FunctionParam::new(
+            "y",
+            "Real",
+            EffectiveType::new(TypeId::new(10), TypeId::new(10), output_dims.clone()).unwrap(),
+            span(),
+        ));
+        let mut model = model(vec![2], literal(1.0), vec![]);
+        model.add_function(function);
+        let function_id = model.functions[&VarName::new("init")].instance_id.unwrap();
+        let call = Expression::FunctionCall {
+            name: Reference::new("init").with_resolved_function(ResolvedFunctionReference {
+                instance_id: function_id,
+                base_part_count: 1,
+                transitively_non_replaceable: false,
+            }),
+            args: vec![reference("unknown_record_field", None)],
+            is_constructor: false,
+            span: span(),
+        };
+        if !output_dims.is_empty() {
+            model.variables.get_mut(&VarName::new("x")).unwrap().start = Some(Expression::Index {
+                base: Box::new(call.clone()),
+                subscripts: vec![Subscript::colon(span())],
+                span: span(),
+            });
+            assert!(!start(&model.source_attributes().unwrap()).each());
+        }
+        for selectors in 0..=output_dims.len() {
+            model.variables.get_mut(&VarName::new("x")).unwrap().start = Some(if selectors == 0 {
+                call.clone()
+            } else {
+                Expression::Index {
+                    base: Box::new(call.clone()),
+                    subscripts: vec![Subscript::index(1, span()); selectors],
+                    span: span(),
+                }
+            });
+            let catalog = model.source_attributes().unwrap();
+            let result = catalog.attribute(InstanceId::new(1), SourceAttributeKind::Start);
+            if selectors < output_dims.len() {
+                let value = result.unwrap().unwrap();
+                assert!(!value.each());
+                assert_eq!(value.minimum_rank(), output_dims.len() - selectors);
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(SourceAttributeError::UnknownShape { .. })
+                ));
+            }
+        }
+    }
 }

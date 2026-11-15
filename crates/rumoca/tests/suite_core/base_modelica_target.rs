@@ -440,6 +440,110 @@ end UnrenderedStart;";
 }
 
 #[test]
+fn sliced_attribute_modifiers_retain_the_writing_instance() {
+    let source = "model Inner
+  Real x[2];
+equation der(x)=-x;
+end Inner;
+model Outer
+  parameter Real p[3]={1,2,3};
+  Inner c(x(start=p[1:2], min=p[1:2], max=p[2:3], nominal=p[1:2]));
+end Outer;
+model ModifierScope
+  Outer a;
+  Outer b(p={4,5,6});
+end ModifierScope;";
+    let out = render_ok(source, "ModifierScope", "base-modelica");
+    for prefix in ["a", "b"] {
+        let declaration = out
+            .lines()
+            .find(|line| line.contains(&format!("'{prefix}.c.x'[2]")))
+            .unwrap();
+        for (attribute, selection) in [
+            ("start", "1:2"),
+            ("min", "1:2"),
+            ("max", "2:3"),
+            ("nominal", "1:2"),
+        ] {
+            assert!(
+                declaration.contains(&format!("{attribute} = '{prefix}.p'[{selection}]")),
+                "{out}"
+            );
+        }
+    }
+    recompiles(&out, "ModifierScope");
+}
+
+#[test]
+fn array_returning_record_calls_remain_array_attributes_after_record_expansion() {
+    let source = "record Frame
+  Real T[2,2];
+  Real w[2];
+end Frame;
+function resolveFrame
+  input Frame R;
+  input Real v[2];
+  output Real y[2];
+algorithm
+  y := R.T*v + R.w;
+end resolveFrame;
+model RecordCallStart
+  parameter Frame R(T={{1,0},{0,1}}, w={0,0});
+  parameter Real v[2]={1,2};
+  Real x[2](start=resolveFrame(R,v));
+equation der(x)=-x;
+end RecordCallStart;";
+    let out = render_ok(source, "RecordCallStart", "base-modelica");
+    let declaration = out.lines().find(|line| line.contains("'x'[2]")).unwrap();
+    assert!(declaration.contains("start = 'resolveFrame'("), "{out}");
+    assert!(!declaration.contains("start = fill("), "{out}");
+    recompiles(&out, "RecordCallStart");
+}
+
+#[test]
+fn duplicate_inherited_attribute_references_use_effective_declarations() {
+    for (parameter, each, expected) in [
+        (
+            "parameter Real m_flow_start=1;",
+            "each ",
+            "fill('pipe.flowModel.m_flow_start', 2)",
+        ),
+        (
+            "parameter Real m_flow_start[2]={1,2};",
+            "",
+            "'pipe.flowModel.m_flow_start'",
+        ),
+    ] {
+        let modifiers = ["start", "min", "max", "nominal"]
+            .map(|attribute| format!("{each}{attribute}=m_flow_start"))
+            .join(", ");
+        let source = format!(
+            "partial model FlowInterface
+  {parameter}
+  Real m_flows[2]({modifiers});
+end FlowInterface;
+model FlowImplementation
+  {parameter}
+  extends FlowInterface;
+equation der(m_flows)=-m_flows;
+end FlowImplementation;
+model Pipe
+  replaceable model Flow = FlowInterface constrainedby FlowInterface;
+  Flow flowModel;
+end Pipe;
+model RedeclaredStart
+  Pipe pipe(redeclare model Flow = FlowImplementation);
+end RedeclaredStart;"
+        );
+        let out = render_ok(&source, "RedeclaredStart", "base-modelica");
+        for attribute in ["start", "min", "max", "nominal"] {
+            assert!(out.contains(&format!("{attribute} = {expected}")), "{out}");
+        }
+        recompiles(&out, "RedeclaredStart");
+    }
+}
+
+#[test]
 fn scalar_selected_attributes_are_replicated() {
     let source = "model SelectedAttributes
   parameter Real p[2]={1,2};

@@ -229,6 +229,10 @@ pub struct Model {
     /// Source `DefId`s remain declaration provenance. Concrete containment and
     /// aggregate-to-materialization proofs use `InstanceId` exclusively.
     pub instance_relations: InstanceRelationMap,
+    /// Duplicate inherited declaration identities mapped to each class occurrence's
+    /// surviving effective declaration (MLS §5.6.1.4). Issued by instantiation.
+    #[serde(default)]
+    pub member_declaration_aliases: IndexMap<InstanceId, IndexMap<DefId, DefId>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

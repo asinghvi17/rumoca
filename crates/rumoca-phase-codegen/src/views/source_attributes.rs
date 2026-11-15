@@ -14,13 +14,13 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 struct AttributeRank {
-    rank: usize,
+    minimum_rank: usize,
     each: bool,
 }
 
 type AttributeRanks = BTreeMap<&'static str, Result<Option<AttributeRank>, String>>;
 
-/// `flat_source_attribute_rank(instance_id, kind)` returns `{rank, each}`.
+/// `flat_source_attribute_rank(instance_id, kind)` returns `{minimum_rank, each}`.
 /// Attribute failures are deferred independently until that attribute is queried.
 pub(crate) fn context_value(model: &Model) -> Value {
     let shapes = model
@@ -66,7 +66,7 @@ pub(crate) fn context_value(model: &Model) -> Value {
 
 fn attribute_shape(value: SourceAttributeValue<'_>) -> AttributeRank {
     AttributeRank {
-        rank: value.rank(),
+        minimum_rank: value.minimum_rank(),
         each: value.each(),
     }
 }

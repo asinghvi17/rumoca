@@ -395,6 +395,110 @@ end EmptySlice;"
     }
 }
 
+/// MLS §7.2.5 and §10: only scalar attributes need replication. Sizes
+/// may depend on parameters, and selecting an array can retain array axes.
+#[test]
+fn array_attribute_rank_preserves_symbolic_sizes_and_selections() {
+    for (declarations, value, expected) in [
+        ("parameter Integer n=2;", "fill(1.0,n)", "fill(1.0, 'n')"),
+        ("parameter Integer n=2;", "zeros(n)", "zeros('n')"),
+        ("parameter Integer n=2;", "ones(n)", "ones('n')"),
+        (
+            "parameter Real p[2]={1,2};",
+            "{p[1],p[2]}",
+            "{'p'[1], 'p'[2]}",
+        ),
+        ("parameter Real p[3]={1,2,3};", "p[1:2]", "'p'[1:2]"),
+        (
+            "parameter Real p[2,2]={{1,2},{3,4}};",
+            "p[1,:]",
+            "'p'[1, :]",
+        ),
+    ] {
+        for attribute in ["start", "min", "max", "nominal"] {
+            let source = format!(
+                "model AttributeRank {declarations} Real x[2]({attribute}={value}); equation der(x)=-x; end AttributeRank;"
+            );
+            let out = render_ok(&source, "AttributeRank", "base-modelica");
+            assert!(out.contains(&format!("{attribute} = {expected}")), "{out}");
+            recompiles(&out, "AttributeRank");
+        }
+    }
+}
+
+#[test]
+fn unrendered_parameter_start_does_not_refuse_other_attributes() {
+    let source = "model UnrenderedStart
+  parameter Real q[2]={1,2};
+  parameter Real x[2](each min=0, start={q[1],q[2]})=q;
+end UnrenderedStart;";
+    let out = render_ok(source, "UnrenderedStart", "base-modelica");
+    let x = out.lines().find(|line| line.contains("'x'[2]")).unwrap();
+    assert!(x.contains("min = fill(0, 2)"), "{out}");
+    assert!(!x.contains("start ="), "{out}");
+    recompiles(&out, "UnrenderedStart");
+}
+
+#[test]
+fn scalar_selected_attributes_are_replicated() {
+    let source = "model SelectedAttributes
+  parameter Real p[2]={1,2};
+  Real x[2](each start=p[1], each min=p[1], each max=p[2], each nominal=p[1]);
+equation
+  der(x)=-x;
+end SelectedAttributes;";
+    let out = render_ok(source, "SelectedAttributes", "base-modelica");
+    for (key, index) in [("start", 1), ("min", 1), ("max", 2), ("nominal", 1)] {
+        assert!(
+            out.contains(&format!("{key} = fill('p'[{index}], 2)")),
+            "{out}"
+        );
+    }
+    recompiles(&out, "SelectedAttributes");
+}
+
+#[test]
+fn array_attribute_calls_use_input_and_output_rank() {
+    for (inputs, output, algorithm, call, size) in [
+        (
+            "input Real u[:];",
+            "Real y[size(u,1)]",
+            "y:=u;",
+            "init({1.0,2.0})",
+            "2",
+        ),
+        ("input Real u=1.0;", "Real y[2]", "y:={u,u};", "init()", "2"),
+        ("input Real u;", "Real y", "y:=u;", "init({1.0,2.0})", "2"),
+        (
+            "input Real u;",
+            "Real y[2]",
+            "y:={u,u};",
+            "init({1.0,2.0})",
+            "2,2",
+        ),
+    ] {
+        let source = format!(
+            "function init {inputs} output {output}; algorithm {algorithm} end init; model CallRank Real x[{size}](start={call}); equation der(x)=-x; end CallRank;"
+        );
+        let out = render_ok(&source, "CallRank", "base-modelica");
+        let x = out.lines().find(|line| line.contains("'x'[")).unwrap();
+        assert!(x.contains("start = 'init'("), "{out}");
+        assert!(!x.contains("fill("), "{out}");
+        recompiles(&out, "CallRank");
+    }
+}
+
+#[test]
+fn invalid_fill_subscripts_remain_visible_in_export() {
+    for (selection, size) in [("-1:1", "3"), ("2:5", "4")] {
+        let source = format!(
+            "model InvalidSlice Real x[{size}](start=(fill(7,3))[{selection}]); equation der(x)=-x; end InvalidSlice;"
+        );
+        let out = render_ok(&source, "InvalidSlice", "base-modelica");
+        assert!(out.contains("start = (fill(7, 3))["), "{out}");
+    }
+}
+
 #[test]
 fn scalar_target_preserves_elementwise_power() {
     let source = "model ElementPower

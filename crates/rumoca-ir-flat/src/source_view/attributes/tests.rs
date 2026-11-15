@@ -1,18 +1,19 @@
 use super::*;
-use crate::Variable;
-use rumoca_core::{EffectiveType, Literal, Reference, SourceId, TypeId, VarName};
+use rumoca_core::{
+    ArrayConstructor, BuiltinFunction, ComponentRefPart, ComponentReference, EffectiveType,
+    FunctionParam, Literal, OpBinary, OpUnary, Reference, ResolvedFunctionReference, SourceId,
+    Subscript, TypeId,
+};
 
 fn span() -> Span {
     Span::from_offsets(SourceId::from_source_name("attributes.mo"), 2, 11)
 }
-
 fn literal(value: f64) -> Expression {
     Expression::Literal {
         value: Literal::Real(value),
         span: span(),
     }
 }
-
 fn reference(name: &str, instance: Option<InstanceId>) -> Expression {
     let mut name = Reference::new(name);
     if let Some(instance) = instance {
@@ -24,7 +25,6 @@ fn reference(name: &str, instance: Option<InstanceId>) -> Expression {
         span: span(),
     }
 }
-
 fn model(dimensions: Vec<i64>, source: Expression, reference_dimensions: Vec<i64>) -> Model {
     let mut model = Model::default();
     for (index, (name, dimensions, start)) in [
@@ -53,66 +53,55 @@ fn model(dimensions: Vec<i64>, source: Expression, reference_dimensions: Vec<i64
     }
     model
 }
+fn start<'model>(catalog: &SourceAttributeCatalog<'model>) -> SourceAttributeValue<'model> {
+    catalog
+        .attribute(InstanceId::new(1), SourceAttributeKind::Start)
+        .unwrap()
+        .unwrap()
+}
 
 #[test]
-fn source_attributes_scalar_values_issue_each_only_on_array_occurrences() {
+fn scalar_attributes_issue_each_only_on_array_occurrences_and_preserve_values() {
     for dimensions in [vec![], vec![0], vec![2_000_000]] {
         let model = model(dimensions.clone(), literal(-0.0), vec![]);
+        let before = serde_json::to_value(&model).unwrap();
         let catalog = model.source_attributes().unwrap();
-        let values = catalog.variable(InstanceId::new(1)).unwrap();
-        assert_eq!(values.len(), 1);
-        assert_eq!(values[0].kind(), SourceAttributeKind::Start);
-        assert_eq!(values[0].each(), !dimensions.is_empty());
-        assert!(values[0].dimensions().is_empty());
+        let value = start(&catalog);
+        assert_eq!(value.kind(), SourceAttributeKind::Start);
+        assert_eq!(value.rank(), 0);
+        assert_eq!(value.each(), !dimensions.is_empty());
         assert!(std::ptr::eq(
-            values[0].expression(),
+            value.expression(),
             model.variables[&VarName::new("x")].start.as_ref().unwrap()
         ));
         let Expression::Literal {
             value: Literal::Real(value),
             ..
-        } = values[0].expression()
+        } = value.expression()
         else {
             panic!("original literal")
         };
         assert_eq!(value.to_bits(), (-0.0f64).to_bits());
+        assert_eq!(serde_json::to_value(&model).unwrap(), before);
     }
 }
 
 #[test]
-fn source_attributes_reference_shape_comes_from_exact_finalized_occurrence() {
-    for dimensions in [vec![], vec![0], vec![4], vec![2_000_000]] {
+fn reference_rank_comes_from_exact_finalized_occurrence_without_rechecking_extents() {
+    for dimensions in [vec![], vec![0], vec![4], vec![2_000_000], vec![0, 2]] {
         let model = model(
             vec![2_000_000],
             reference("p", Some(InstanceId::new(2))),
             dimensions.clone(),
         );
         let catalog = model.source_attributes().unwrap();
-        let values = catalog.variable(InstanceId::new(1));
-        if dimensions.is_empty() || dimensions == [2_000_000] {
-            let values = values.unwrap();
-            assert_eq!(values[0].dimensions(), dimensions);
-            assert_eq!(values[0].each(), dimensions.is_empty());
-        } else {
-            let error = values.expect_err("mismatched occurrence shape must refuse");
-            let diagnostic = error.to_string();
-            assert!(diagnostic.starts_with("source attribute presentation refused: ShapeMismatch"));
-            assert!(diagnostic.contains("variable: InstanceId(1)"));
-            assert!(diagnostic.contains("attribute: Start"));
-            assert!(matches!(
-                error,
-                SourceAttributeError::ShapeMismatch {
-                    variable,
-                    attribute: SourceAttributeKind::Start,
-                    span: at,
-                } if variable == InstanceId::new(1) && at == span()
-            ));
-        }
+        assert_eq!(start(&catalog).rank(), dimensions.len());
+        assert_eq!(start(&catalog).each(), dimensions.is_empty());
     }
 }
 
 #[test]
-fn source_attributes_rendered_name_alone_or_mismatched_identity_cannot_issue_shape() {
+fn rendered_name_alone_or_mismatched_identity_cannot_issue_rank() {
     for expression in [
         reference("p", None),
         reference("p", Some(InstanceId::new(1))),
@@ -123,64 +112,68 @@ fn source_attributes_rendered_name_alone_or_mismatched_identity_cannot_issue_sha
             model
                 .source_attributes()
                 .unwrap()
-                .variable(InstanceId::new(1)),
+                .attribute(InstanceId::new(1), SourceAttributeKind::Start),
             Err(SourceAttributeError::UnknownShape { .. })
         ));
     }
 }
 
 #[test]
-fn source_attributes_unknown_call_refuses_instead_of_guessing_scalar_or_partial_output() {
-    let call = Expression::FunctionCall {
+fn unknown_attribute_does_not_refuse_a_different_attribute() {
+    let mut model = model(vec![4], literal(1.0), vec![]);
+    model.variables.get_mut(&VarName::new("x")).unwrap().min = Some(Expression::FunctionCall {
         name: Reference::new("opaque"),
         args: vec![],
         is_constructor: false,
         span: span(),
-    };
-    let mut model = model(vec![4], literal(1.0), vec![]);
-    model.variables.get_mut(&VarName::new("x")).unwrap().min = Some(call);
-    let error = model
-        .source_attributes()
-        .unwrap()
-        .variable(InstanceId::new(1))
-        .expect_err("unknown call shape must refuse the entire attribute list");
-    let diagnostic = error.to_string();
-    assert!(diagnostic.starts_with("source attribute presentation refused: UnknownShape"));
-    assert!(diagnostic.contains("variable: InstanceId(1)"));
-    assert!(diagnostic.contains("attribute: Min"));
+    });
+    let catalog = model.source_attributes().unwrap();
+    assert!(start(&catalog).each());
+    assert!(
+        matches!(catalog.attribute(InstanceId::new(1), SourceAttributeKind::Min), Err(SourceAttributeError::UnknownShape { variable, attribute: SourceAttributeKind::Min, span: at }) if variable == InstanceId::new(1) && at == span())
+    );
+    assert!(
+        catalog
+            .attribute(InstanceId::new(1), SourceAttributeKind::Max)
+            .unwrap()
+            .is_none()
+    );
     assert!(matches!(
-        error,
-        SourceAttributeError::UnknownShape {
-            variable,
-            attribute: SourceAttributeKind::Min,
-            span: at,
-        } if variable == InstanceId::new(1) && at == span()
+        catalog.attribute(InstanceId::new(99), SourceAttributeKind::Start),
+        Err(SourceAttributeError::MissingVariable(_))
     ));
 }
 
 #[test]
-fn source_attributes_calls_use_exact_function_output_shape() {
-    use rumoca_core::{Function, FunctionInstanceId, FunctionParam, ResolvedFunctionReference};
-    for dimensions in [vec![], vec![2], vec![0]] {
+fn calls_use_exact_callable_rank_with_defaults_colons_and_vectorization() {
+    for (input_dims, output_dims, argument_dims, defaulted, expected) in [
+        (vec![], vec![2], vec![], false, 1),
+        (vec![0], vec![0], vec![4], false, 1),
+        (vec![], vec![2], vec![], true, 1),
+        (vec![], vec![], vec![2], false, 1),
+        (vec![], vec![2], vec![3], false, 2),
+    ] {
         let mut function = Function::new("init", span());
-        function.inputs.push(FunctionParam::new(
-            "seed",
+        let mut input = FunctionParam::new(
+            "u",
             "Real",
-            EffectiveType::new(TypeId::new(10), TypeId::new(10), vec![]).unwrap(),
+            EffectiveType::new(TypeId::new(10), TypeId::new(10), input_dims.clone()).unwrap(),
             span(),
-        ));
+        );
+        if defaulted {
+            input.default = Some(literal(1.0));
+        }
+        if !input_dims.is_empty() {
+            input.shape_expr = vec![Subscript::colon(span())];
+        }
+        function.inputs.push(input);
         function.outputs.push(FunctionParam::new(
-            "result",
+            "y",
             "Real",
-            EffectiveType::new(TypeId::new(10), TypeId::new(10), dimensions.clone()).unwrap(),
+            EffectiveType::new(TypeId::new(10), TypeId::new(10), output_dims).unwrap(),
             span(),
         ));
-        let target = if dimensions.is_empty() {
-            vec![2]
-        } else {
-            dimensions.clone()
-        };
-        let mut model = model(target, literal(0.0), vec![]);
+        let mut model = model(vec![2], literal(1.0), argument_dims);
         model.add_function(function);
         let instance_id = model.functions[&VarName::new("init")].instance_id.unwrap();
         for selected in [Some(instance_id), None, Some(FunctionInstanceId::new(999))] {
@@ -195,16 +188,18 @@ fn source_attributes_calls_use_exact_function_output_shape() {
             model.variables.get_mut(&VarName::new("x")).unwrap().start =
                 Some(Expression::FunctionCall {
                     name,
-                    args: vec![literal(1.0)],
+                    args: if defaulted {
+                        vec![]
+                    } else {
+                        vec![reference("p", Some(InstanceId::new(2)))]
+                    },
                     is_constructor: false,
                     span: span(),
                 });
             let catalog = model.source_attributes().unwrap();
-            let result = catalog.variable(InstanceId::new(1));
+            let result = catalog.attribute(InstanceId::new(1), SourceAttributeKind::Start);
             if selected == Some(instance_id) {
-                let values = result.unwrap();
-                assert_eq!(values[0].dimensions(), dimensions);
-                assert_eq!(values[0].each(), dimensions.is_empty());
+                assert_eq!(result.unwrap().unwrap().rank(), expected);
             } else {
                 assert!(matches!(
                     result,
@@ -216,59 +211,200 @@ fn source_attributes_calls_use_exact_function_output_shape() {
 }
 
 #[test]
-fn source_attributes_compound_shapes_preserve_array_axes() {
-    use rumoca_core::{BuiltinFunction, OpBinary, OpUnary};
-    let array = reference("p", Some(InstanceId::new(2)));
-    for expression in [
-        Expression::Unary {
-            op: OpUnary::Minus,
-            rhs: Box::new(array.clone()),
-            span: span(),
-        },
-        Expression::Binary {
-            op: OpBinary::Mul,
-            lhs: Box::new(literal(2.0)),
-            rhs: Box::new(array.clone()),
-            span: span(),
-        },
-        Expression::If {
-            branches: vec![(
-                Expression::Literal {
-                    value: Literal::Boolean(true),
-                    span: span(),
-                },
-                array.clone(),
-            )],
-            else_branch: Box::new(array.clone()),
-            span: span(),
-        },
-        Expression::BuiltinCall {
-            function: BuiltinFunction::Abs,
-            args: vec![array],
-            span: span(),
-        },
-        Expression::BuiltinCall {
-            function: BuiltinFunction::Fill,
-            args: vec![
-                literal(1.0),
-                Expression::Literal {
-                    value: Literal::Integer(2),
-                    span: span(),
-                },
-            ],
-            span: span(),
-        },
+fn symbolic_sizes_and_subscripted_elements_have_value_independent_rank() {
+    let p = reference("p", Some(InstanceId::new(2)));
+    let selected = Expression::Index {
+        base: Box::new(p.clone()),
+        subscripts: vec![Subscript::index(1, span())],
+        span: span(),
+    };
+    for (expression, expected) in [
+        (
+            Expression::BuiltinCall {
+                function: BuiltinFunction::Fill,
+                args: vec![literal(1.0), p.clone()],
+                span: span(),
+            },
+            1,
+        ),
+        (
+            Expression::BuiltinCall {
+                function: BuiltinFunction::Fill,
+                args: vec![p.clone(), literal(2.0)],
+                span: span(),
+            },
+            2,
+        ),
+        (
+            Expression::BuiltinCall {
+                function: BuiltinFunction::Zeros,
+                args: vec![p.clone()],
+                span: span(),
+            },
+            1,
+        ),
+        (
+            Expression::BuiltinCall {
+                function: BuiltinFunction::Ones,
+                args: vec![p.clone(), p.clone()],
+                span: span(),
+            },
+            2,
+        ),
+        (
+            Expression::Array {
+                elements: vec![selected.clone(), selected],
+                kind: ArrayConstructor::Array,
+                span: span(),
+            },
+            1,
+        ),
+        (
+            Expression::Array {
+                elements: vec![],
+                kind: ArrayConstructor::Array,
+                span: span(),
+            },
+            1,
+        ),
+        (
+            Expression::Array {
+                elements: vec![p.clone(), p.clone()],
+                kind: ArrayConstructor::Horizontal,
+                span: span(),
+            },
+            2,
+        ),
+        (
+            Expression::Unary {
+                op: OpUnary::Minus,
+                rhs: Box::new(p.clone()),
+                span: span(),
+            },
+            1,
+        ),
+        (
+            Expression::Binary {
+                op: OpBinary::Mul,
+                lhs: Box::new(literal(2.0)),
+                rhs: Box::new(p),
+                span: span(),
+            },
+            1,
+        ),
     ] {
         let model = model(vec![2], expression, vec![2]);
         let catalog = model.source_attributes().unwrap();
-        let values = catalog.variable(InstanceId::new(1)).unwrap();
-        assert_eq!(values[0].dimensions(), [2]);
-        assert!(!values[0].each());
+        assert_eq!(start(&catalog).rank(), expected);
+        assert!(!start(&catalog).each());
     }
 }
 
 #[test]
-fn source_attributes_catalog_rejects_stale_effective_shape_and_duplicate_occurrence() {
+fn structured_and_outer_subscripts_preserve_only_unselected_axes() {
+    for dims in [vec![2], vec![2, 3]] {
+        for subscript in [
+            Subscript::index(1, span()),
+            Subscript::colon(span()),
+            Subscript::Expr {
+                expr: Box::new(Expression::Range {
+                    start: Box::new(literal(1.0)),
+                    step: None,
+                    end: Box::new(literal(2.0)),
+                    span: span(),
+                }),
+                span: span(),
+            },
+        ] {
+            let expected = dims.len() - usize::from(matches!(subscript, Subscript::Index { .. }));
+            for embedded in [false, true] {
+                let mut name = Reference::new("p").with_instance_id(InstanceId::new(2));
+                if embedded {
+                    let component = ComponentReference::construct(
+                        false,
+                        span(),
+                        vec![ComponentRefPart {
+                            ident: "p".into(),
+                            span: span(),
+                            def_id: DefId::new(22),
+                            subs: vec![subscript.clone()],
+                        }],
+                    )
+                    .unwrap();
+                    name = Reference::with_component_reference("p", component)
+                        .with_instance_id(InstanceId::new(2));
+                }
+                let expression = Expression::VarRef {
+                    name,
+                    subscripts: if embedded {
+                        vec![]
+                    } else {
+                        vec![subscript.clone()]
+                    },
+                    span: span(),
+                };
+                let model = model(vec![2], expression, dims.clone());
+                let catalog = model.source_attributes().unwrap();
+                assert_eq!(start(&catalog).rank(), expected);
+                assert_eq!(start(&catalog).each(), expected == 0);
+            }
+        }
+    }
+}
+
+#[test]
+fn field_access_uses_resolved_field_identity_and_retains_container_rank() {
+    for (dims, field_dims) in [(vec![], vec![2]), (vec![2], vec![])] {
+        let expression = Expression::FieldAccess {
+            base: Box::new(reference("p", Some(InstanceId::new(2)))),
+            field: "q".into(),
+            field_def_id: DefId::new(23),
+            span: span(),
+        };
+        let mut model = model(vec![2], expression, dims);
+        model.record_types.insert(
+            DefId::new(22),
+            crate::RecordType {
+                name: "R".into(),
+                fields: vec![crate::RecordField {
+                    name: "q".into(),
+                    def_id: DefId::new(23),
+                    dims: field_dims,
+                }],
+            },
+        );
+        let catalog = model.source_attributes().unwrap();
+        assert_eq!(start(&catalog).rank(), 1);
+    }
+    let component = ComponentReference::construct(
+        false,
+        span(),
+        vec![ComponentRefPart {
+            ident: "other".into(),
+            span: span(),
+            def_id: DefId::new(23),
+            subs: vec![],
+        }],
+    )
+    .unwrap();
+    let expression = Expression::VarRef {
+        name: Reference::with_component_reference("p", component)
+            .with_instance_id(InstanceId::new(2)),
+        subscripts: vec![],
+        span: span(),
+    };
+    let model = model(vec![2], expression, vec![2]);
+    assert!(
+        model
+            .source_attributes()
+            .unwrap()
+            .attribute(InstanceId::new(1), SourceAttributeKind::Start)
+            .is_err()
+    );
+}
+
+#[test]
+fn catalog_rejects_stale_effective_shape_and_duplicate_occurrence() {
     let mut model = model(vec![4], literal(1.0), vec![]);
     model.variables.get_mut(&VarName::new("x")).unwrap().dims = vec![5];
     assert!(model.source_attributes().is_err());
@@ -279,248 +415,4 @@ fn source_attributes_catalog_rejects_stale_effective_shape_and_duplicate_occurre
         .unwrap()
         .instance_id = InstanceId::new(1);
     assert!(model.source_attributes().is_err());
-}
-
-#[test]
-fn source_attributes_original_order_values_and_wire_are_unchanged() {
-    let mut model = model(vec![4], literal(f64::NAN), vec![]);
-    let variable = model.variables.get_mut(&VarName::new("x")).unwrap();
-    variable.min = Some(literal(-1.0));
-    variable.max = Some(literal(1.0));
-    variable.nominal = Some(literal(0.5));
-    let before = serde_json::to_value(&model).unwrap();
-    let catalog = model.source_attributes().unwrap();
-    let values = catalog.variable(InstanceId::new(1)).unwrap();
-    assert_eq!(
-        values
-            .iter()
-            .map(SourceAttributeValue::kind)
-            .collect::<Vec<_>>(),
-        [
-            SourceAttributeKind::Start,
-            SourceAttributeKind::Min,
-            SourceAttributeKind::Max,
-            SourceAttributeKind::Nominal
-        ]
-    );
-    let error = catalog
-        .variable(InstanceId::new(99))
-        .expect_err("missing occurrence must refuse");
-    assert_eq!(
-        error.to_string(),
-        "source attribute presentation refused: MissingVariable(InstanceId(99))"
-    );
-    assert!(matches!(
-        error,
-        SourceAttributeError::MissingVariable(variable) if variable == InstanceId::new(99)
-    ));
-    assert_eq!(serde_json::to_value(&model).unwrap(), before);
-}
-
-#[test]
-fn source_attributes_array_construction_reuses_canonical_shape_algebra() {
-    use rumoca_core::ArrayConstructor;
-    let vector = |values: &[f64]| Expression::Array {
-        elements: values.iter().map(|value| literal(*value)).collect(),
-        kind: ArrayConstructor::Array,
-        span: span(),
-    };
-    for (expression, dimensions) in [
-        (vector(&[]), vec![0]),
-        (vector(&[1.0, 2.0]), vec![2]),
-        (
-            Expression::Array {
-                elements: vec![vector(&[1.0, 2.0]), vector(&[3.0, 4.0])],
-                kind: ArrayConstructor::Array,
-                span: span(),
-            },
-            vec![2, 2],
-        ),
-        (
-            Expression::Array {
-                elements: vec![vector(&[1.0, 2.0]), vector(&[3.0, 4.0])],
-                kind: ArrayConstructor::Horizontal,
-                span: span(),
-            },
-            vec![2, 2],
-        ),
-    ] {
-        let model = model(dimensions.clone(), expression, vec![]);
-        let catalog = model.source_attributes().unwrap();
-        let attributes = catalog.variable(InstanceId::new(1)).unwrap();
-        assert_eq!(attributes[0].dimensions(), dimensions);
-        assert!(!attributes[0].each());
-    }
-    let malformed = Expression::Array {
-        elements: vec![vector(&[1.0]), vector(&[1.0, 2.0])],
-        kind: ArrayConstructor::Array,
-        span: span(),
-    };
-    let model = model(vec![2, 2], malformed, vec![]);
-    assert!(matches!(
-        model
-            .source_attributes()
-            .unwrap()
-            .variable(InstanceId::new(1)),
-        Err(SourceAttributeError::UnknownShape { .. })
-    ));
-}
-
-#[test]
-fn source_attributes_empty_array_reference_does_not_become_scalar() {
-    let model = model(
-        vec![0, 2_000_000],
-        reference("p", Some(InstanceId::new(2))),
-        vec![0, 2_000_000],
-    );
-    let catalog = model.source_attributes().unwrap();
-    let values = catalog.variable(InstanceId::new(1)).unwrap();
-    assert_eq!(values[0].dimensions(), [0, 2_000_000]);
-    assert!(!values[0].each());
-}
-
-#[test]
-fn source_attributes_slices_keep_checked_range_cardinality() {
-    let integer = |value| Expression::Literal {
-        value: Literal::Integer(value),
-        span: span(),
-    };
-    for (start, step, end, count) in [(2, 2, 1, 0), (1, -2, 2, 0), (5, -2, 1, 3)] {
-        let expression = Expression::Index {
-            base: Box::new(Expression::BuiltinCall {
-                function: BuiltinFunction::Fill,
-                args: vec![literal(7.0), integer(5)],
-                span: span(),
-            }),
-            subscripts: vec![Subscript::Expr {
-                expr: Box::new(Expression::Range {
-                    start: Box::new(integer(start)),
-                    step: Some(Box::new(integer(step))),
-                    end: Box::new(integer(end)),
-                    span: span(),
-                }),
-                span: span(),
-            }],
-            span: span(),
-        };
-        let model = model(vec![count], expression, vec![]);
-        let catalog = model.source_attributes().unwrap();
-        let values = catalog.variable(InstanceId::new(1)).unwrap();
-        assert_eq!(values[0].dimensions(), [count]);
-        assert!(!values[0].each());
-    }
-}
-
-#[test]
-fn reviewer_structured_selection_is_not_whole_occurrence_shape() {
-    use rumoca_core::{ComponentRefPart, ComponentReference, DefId, Subscript};
-    let component = ComponentReference::construct(
-        false,
-        span(),
-        vec![ComponentRefPart {
-            ident: "p".into(),
-            span: span(),
-            def_id: DefId::new(22),
-            subs: vec![Subscript::Index {
-                value: 1,
-                span: span(),
-            }],
-        }],
-    )
-    .unwrap();
-    let expression = Expression::VarRef {
-        name: Reference::with_component_reference("p", component)
-            .with_instance_id(InstanceId::new(2)),
-        subscripts: vec![],
-        span: span(),
-    };
-    let model = model(vec![4], expression, vec![4]);
-    assert!(model.validate().is_ok());
-    assert!(matches!(
-        model
-            .source_attributes()
-            .unwrap()
-            .variable(InstanceId::new(1)),
-        Err(SourceAttributeError::UnknownShape { .. })
-    ));
-}
-
-#[test]
-fn reviewer_outer_subscript_is_not_whole_occurrence_shape() {
-    use rumoca_core::Subscript;
-    let expression = Expression::VarRef {
-        name: Reference::new("p").with_instance_id(InstanceId::new(2)),
-        subscripts: vec![Subscript::Index {
-            value: 1,
-            span: span(),
-        }],
-        span: span(),
-    };
-    let model = model(vec![4], expression, vec![4]);
-    assert!(matches!(
-        model
-            .source_attributes()
-            .unwrap()
-            .variable(InstanceId::new(1)),
-        Err(SourceAttributeError::UnknownShape { .. })
-    ));
-}
-
-// Structured-reference identity regression controls.
-fn structured_reference(parts: &[(&str, u32)], cached: &str) -> Expression {
-    use rumoca_core::{ComponentRefPart, ComponentReference, DefId};
-    let component = ComponentReference::construct(
-        false,
-        span(),
-        parts
-            .iter()
-            .map(|(ident, def)| ComponentRefPart {
-                ident: (*ident).into(),
-                span: span(),
-                def_id: DefId::new(*def),
-                subs: vec![],
-            })
-            .collect(),
-    )
-    .unwrap();
-    Expression::VarRef {
-        name: Reference::with_component_reference(cached, component)
-            .with_instance_id(InstanceId::new(2)),
-        subscripts: vec![],
-        span: span(),
-    }
-}
-
-#[test]
-fn source_attributes_field_selection_is_not_whole_occurrence_shape() {
-    let model = model(
-        vec![4],
-        structured_reference(&[("p", 22), ("q", 23)], "p"),
-        vec![4],
-    );
-    assert!(model.validate().is_ok());
-    let result = model
-        .source_attributes()
-        .unwrap()
-        .variable(InstanceId::new(1));
-    eprintln!("field-selection p.q cached p -> {result:?}");
-    assert!(matches!(
-        result,
-        Err(SourceAttributeError::UnknownShape { .. })
-    ));
-}
-
-#[test]
-fn source_attributes_differently_named_structure_is_not_whole_occurrence_shape() {
-    let model = model(vec![4], structured_reference(&[("q", 23)], "p"), vec![4]);
-    assert!(model.validate().is_ok());
-    let result = model
-        .source_attributes()
-        .unwrap()
-        .variable(InstanceId::new(1));
-    eprintln!("structure q cached p -> {result:?}");
-    assert!(matches!(
-        result,
-        Err(SourceAttributeError::UnknownShape { .. })
-    ));
 }

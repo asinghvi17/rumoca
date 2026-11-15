@@ -314,8 +314,11 @@ changes this freeze or supplies production retirement authority.
   deterministic-collection rules.
 
 The Flat source-attribute catalog borrows a validated finalized Model and
-issues `each` only from known scalar shape on an array occurrence. Exact
-reference occurrence/type facts and canonical array-construction shape algebra
-are reused. Unknown call/selection/compound shapes refuse; they require their
-canonical typecheck facts before the corresponding source consumer can migrate.
+issues `each` only from known scalar rank on an array occurrence. Queries are
+per attribute; an unknown unrendered attribute cannot refuse another attribute.
+Reference occurrence, resolved field and callable ranks, subscript ranks, and
+array-construction axes are reused without evaluating dimension sizes.
+Call rank includes vectorization axes beyond declared input ranks; colon sizes
+and omitted defaulted inputs do not require literal extents. Unknown ranks
+refuse the requested attribute. Extent compatibility remains owned by typecheck.
 No rendered delimiter/name heuristic or numerical Solve admission is introduced.

@@ -115,11 +115,6 @@ fn base_modelica_folds_a_slice_of_fill() {
         value: rumoca_core::Literal::Integer(value),
         span: rumoca_core::Span::DUMMY,
     };
-    let n = rumoca_core::Expression::VarRef {
-        name: rumoca_core::Reference::generated("n"),
-        subscripts: Vec::new(),
-        span: rumoca_core::Span::DUMMY,
-    };
     let range = |start, end| rumoca_core::Subscript::Expr {
         expr: Box::new(rumoca_core::Expression::Range {
             start: Box::new(integer(start)),
@@ -132,7 +127,7 @@ fn base_modelica_folds_a_slice_of_fill() {
     let slice = |subscripts| rumoca_core::Expression::Index {
         base: Box::new(rumoca_core::Expression::BuiltinCall {
             function: rumoca_core::BuiltinFunction::Fill,
-            args: vec![integer(7), n.clone(), n.clone()],
+            args: vec![integer(7), integer(5), integer(3)],
             span: rumoca_core::Span::DUMMY,
         }),
         subscripts,
@@ -146,7 +141,7 @@ fn base_modelica_folds_a_slice_of_fill() {
                     span: rumoca_core::Span::DUMMY,
                 },
             ]),
-            "fill(7, 0, 'n')",
+            "fill(7, 0, 3)",
         ),
         (
             slice(vec![
@@ -167,7 +162,7 @@ fn base_modelica_folds_a_slice_of_fill() {
                 2,
                 rumoca_core::Span::DUMMY,
             )]),
-            "fill(7, 'n')",
+            "fill(7, 3)",
         ),
     ];
     for (expr, expected) in cases {
@@ -185,7 +180,7 @@ fn fill_slice_cardinality_handles_direction_steps_and_overflow() {
     let integer = |value| serde_json::json!({"Literal": {"value": {"Integer": value}}});
     let slice = |start, step, end| {
         Value::from_serialize(serde_json::json!({
-            "base": {"BuiltinCall": {"function": "Fill", "args": [integer(7), integer(3)]}},
+            "base": {"BuiltinCall": {"function": "Fill", "args": [integer(7), integer(5)]}},
             "subscripts": [{"Expr": {"expr": {"Range": {
                 "start": integer(start), "step": integer(step), "end": integer(end)
             }}}}]
@@ -196,14 +191,98 @@ fn fill_slice_cardinality_handles_direction_steps_and_overflow() {
         (1, -2, 2, 0),
         (1, 2, 5, 3),
         (5, -2, 1, 3),
-        (i64::MIN, i64::MAX, i64::MAX, 3),
+        (1, 2, 6, 3),
+        (3, -2, 0, 2),
     ] {
         let folded = base_modelica::fold_fill_slice(&slice(start, step, end))
             .expect("checked representable range");
         let json = serde_json::to_value(folded).unwrap();
         assert_eq!(json["BuiltinCall"]["args"][1], integer(count));
     }
-    for bounds in [(1, 0, 3), (i64::MIN, 1, i64::MAX)] {
+    for bounds in [
+        (1, 0, 3),
+        (i64::MIN, 1, i64::MAX),
+        (i64::MIN, i64::MAX, i64::MAX),
+    ] {
         assert!(base_modelica::fold_fill_slice(&slice(bounds.0, bounds.1, bounds.2)).is_none());
     }
+}
+
+#[test]
+fn fill_slice_folding_requires_proven_in_bounds_selections() {
+    use rumoca_core::{BuiltinFunction, Expression, Literal, OpUnary, Span, Subscript};
+    let integer = |value| Expression::Literal {
+        value: Literal::Integer(value),
+        span: Span::DUMMY,
+    };
+    let negative = Expression::Unary {
+        op: OpUnary::Minus,
+        rhs: Box::new(integer(1)),
+        span: Span::DUMMY,
+    };
+    let range = |start, step, end| Subscript::Expr {
+        expr: Box::new(Expression::Range {
+            start: Box::new(start),
+            step: Some(Box::new(integer(step))),
+            end: Box::new(integer(end)),
+            span: Span::DUMMY,
+        }),
+        span: Span::DUMMY,
+    };
+    for subscript in [
+        Subscript::index(-1, Span::DUMMY),
+        Subscript::index(0, Span::DUMMY),
+        Subscript::index(4, Span::DUMMY),
+        Subscript::Expr {
+            expr: Box::new(negative.clone()),
+            span: Span::DUMMY,
+        },
+        range(negative, 1, 1),
+        range(integer(2), 1, 5),
+        range(integer(3), -1, 0),
+    ] {
+        let slice = Expression::Index {
+            base: Box::new(Expression::BuiltinCall {
+                function: BuiltinFunction::Fill,
+                args: vec![integer(7), integer(3)],
+                span: Span::DUMMY,
+            }),
+            subscripts: vec![subscript],
+            span: Span::DUMMY,
+        };
+        let serialized = serde_json::to_value(slice).unwrap();
+        assert!(
+            base_modelica::fold_fill_slice(&Value::from_serialize(&serialized["Index"])).is_none(),
+            "{serialized}"
+        );
+    }
+}
+
+#[test]
+fn fill_slice_with_unknown_extent_retains_parenthesized_selection() {
+    use rumoca_core::{BuiltinFunction, Expression, Literal, Reference, Span, Subscript};
+    let expression = Expression::Index {
+        base: Box::new(Expression::BuiltinCall {
+            function: BuiltinFunction::Fill,
+            args: vec![
+                Expression::Literal {
+                    value: Literal::Integer(7),
+                    span: Span::DUMMY,
+                },
+                Expression::VarRef {
+                    name: Reference::generated("n"),
+                    subscripts: vec![],
+                    span: Span::DUMMY,
+                },
+            ],
+            span: Span::DUMMY,
+        }),
+        subscripts: vec![Subscript::index(1, Span::DUMMY)],
+        span: Span::DUMMY,
+    };
+    let rendered = render(
+        r#"{{ render_expr(e, {"base_modelica": true, "modelica_builtins": true, "one_based_index": true, "sanitize_dots": false, "quote_names": ["n"]}) }}"#,
+        minijinja::context! { e => Value::from_serialize(expression) },
+    ).unwrap();
+    assert_eq!(rendered, "(fill(7, 'n'))[1]");
 }

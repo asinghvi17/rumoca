@@ -1,4 +1,7 @@
-//! Typed read-only source-attribute shape facts from the canonical Flat owner.
+//! Typed read-only source-attribute rank facts from the canonical Flat owner.
+
+#[cfg(test)]
+mod tests;
 
 use std::collections::BTreeMap;
 
@@ -10,17 +13,15 @@ use rumoca_ir_flat::{
 use serde::Serialize;
 
 #[derive(Serialize)]
-struct AttributeShape {
-    dimensions: Vec<i64>,
+struct AttributeRank {
+    rank: usize,
     each: bool,
 }
 
-type VariableShapes = Result<BTreeMap<&'static str, AttributeShape>, String>;
+type AttributeRanks = BTreeMap<&'static str, Result<Option<AttributeRank>, String>>;
 
-/// `flat_source_attribute_shape(instance_id, kind)` returns `{dimensions, each}`.
-/// It copies canonical facts once; queries take logarithmic lookup time
-/// and refuse invalid models or unknown shapes.
-/// Errors are deferred until queried so unrelated Flat consumers stay independent.
+/// `flat_source_attribute_rank(instance_id, kind)` returns `{rank, each}`.
+/// Attribute failures are deferred independently until that attribute is queried.
 pub(crate) fn context_value(model: &Model) -> Value {
     let shapes = model
         .source_attributes()
@@ -30,42 +31,44 @@ pub(crate) fn context_value(model: &Model) -> Value {
                 .variables
                 .values()
                 .map(|variable| {
-                    let values = catalog
-                        .variable(variable.instance_id)
-                        .map(|values| values.into_iter().map(attribute_shape).collect())
-                        .map_err(|error| error.to_string());
-                    (variable.instance_id.index(), values)
+                    let attributes = [
+                        ("start", SourceAttributeKind::Start),
+                        ("min", SourceAttributeKind::Min),
+                        ("max", SourceAttributeKind::Max),
+                        ("nominal", SourceAttributeKind::Nominal),
+                    ]
+                    .into_iter()
+                    .map(|(key, kind)| {
+                        let value = catalog
+                            .attribute(variable.instance_id, kind)
+                            .map(|value| value.map(attribute_shape))
+                            .map_err(|error| error.to_string());
+                        (key, value)
+                    })
+                    .collect::<AttributeRanks>();
+                    (variable.instance_id.index(), attributes)
                 })
-                .collect::<BTreeMap<u32, VariableShapes>>()
+                .collect::<BTreeMap<_, _>>()
         });
     Value::from_function(move |instance: u32, kind: String| -> Result<Value, Error> {
         let variables = shapes.as_ref().map_err(refusal)?;
-        let attributes = variables
+        let shape = variables
             .get(&instance)
-            .ok_or_else(|| refusal("missing source attribute occurrence"))?
+            .and_then(|attributes| attributes.get(kind.as_str()))
+            .ok_or_else(|| refusal("missing source attribute occurrence or kind"))?
             .as_ref()
-            .map_err(refusal)?;
-        let shape = attributes
-            .get(kind.as_str())
-            .ok_or_else(|| refusal("missing source attribute kind"))?;
+            .map_err(refusal)?
+            .as_ref()
+            .ok_or_else(|| refusal("missing source attribute value"))?;
         Ok(Value::from_serialize(shape))
     })
 }
 
-fn attribute_shape(value: SourceAttributeValue<'_>) -> (&'static str, AttributeShape) {
-    let kind = match value.kind() {
-        SourceAttributeKind::Start => "start",
-        SourceAttributeKind::Min => "min",
-        SourceAttributeKind::Max => "max",
-        SourceAttributeKind::Nominal => "nominal",
-    };
-    (
-        kind,
-        AttributeShape {
-            dimensions: value.dimensions().to_vec(),
-            each: value.each(),
-        },
-    )
+fn attribute_shape(value: SourceAttributeValue<'_>) -> AttributeRank {
+    AttributeRank {
+        rank: value.rank(),
+        each: value.each(),
+    }
 }
 
 fn refusal(message: impl AsRef<str>) -> Error {

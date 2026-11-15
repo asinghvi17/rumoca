@@ -65,7 +65,7 @@ pub(super) fn fold_fill_slice(index: &Value) -> Option<Value> {
     let mut kept = Vec::new();
     for (position, dim) in dims.iter().enumerate() {
         let extent = match subscripts.get(position) {
-            Some(subscript) => slice_extent(subscript)?,
+            Some(subscript) => slice_extent(subscript, integer_literal(dim))?,
             None => Extent::Whole,
         };
         match extent {
@@ -93,16 +93,18 @@ enum Extent {
 }
 
 /// What subscript `sub` leaves of the dimension it selects from.
-fn slice_extent(sub: &serde_json::Value) -> Option<Extent> {
+fn slice_extent(sub: &serde_json::Value, extent: Option<i64>) -> Option<Extent> {
     if sub.get("Colon").is_some() || sub.as_str() == Some("Colon") {
         return Some(Extent::Whole);
     }
-    if sub.get("Index").is_some() {
-        return Some(Extent::Dropped);
+    if let Some(index) = sub.get("Index") {
+        return (1..=extent?)
+            .contains(&index["value"].as_i64()?)
+            .then_some(Extent::Dropped);
     }
     let expr = &sub.get("Expr")?["expr"];
-    if integer_literal(expr).is_some() {
-        return Some(Extent::Dropped);
+    if let Some(index) = integer_literal(expr) {
+        return (1..=extent?).contains(&index).then_some(Extent::Dropped);
     }
     let range = expr.get("Range")?;
     let start = integer_literal(&range["start"])?;
@@ -121,9 +123,15 @@ fn slice_extent(sub: &serde_json::Value) -> Option<Extent> {
             step,
         }],
     };
-    Some(Extent::Literal(
-        i64::try_from(domain.scalar_count().ok()?).ok()?,
-    ))
+    let count = i64::try_from(domain.scalar_count().ok()?).ok()?;
+    let extent = extent?;
+    if count > 0 {
+        let last = i128::from(start) + i128::from(count - 1) * i128::from(step);
+        if !(1..=extent).contains(&start) || !(1..=i128::from(extent)).contains(&last) {
+            return None;
+        }
+    }
+    Some(Extent::Literal(count))
 }
 
 fn integer_literal(expr: &serde_json::Value) -> Option<i64> {

@@ -488,7 +488,7 @@ fn render_flat_context(
     let flat_value = Value::from_serialize(flat_model);
     let type_names = Value::from_serialize(qualified_enumeration_type_names(flat_model));
     let equation_rows = Value::from_serialize(flat_family_loops::context_value(flat_model));
-    let attribute_shapes = crate::views::source_attributes::context_value(flat_model);
+    let attribute_ranks = crate::views::source_attributes::context_value(flat_model);
     let experiment = context.experiment.context_value();
     let evaluated_parameters = context.evaluated_parameters_value();
     match model_name {
@@ -498,7 +498,7 @@ fn render_flat_context(
             ir_kind => "flat",
             flat_type_names => type_names,
             flat_equation_rows => equation_rows,
-            flat_source_attribute_shape => attribute_shapes,
+            flat_source_attribute_rank => attribute_ranks,
             experiment => experiment,
             evaluated_parameters => evaluated_parameters,
             model_name => name,
@@ -509,7 +509,7 @@ fn render_flat_context(
             ir_kind => "flat",
             flat_type_names => type_names,
             flat_equation_rows => equation_rows,
-            flat_source_attribute_shape => attribute_shapes,
+            flat_source_attribute_rank => attribute_ranks,
             experiment => experiment,
             evaluated_parameters => evaluated_parameters,
         }),

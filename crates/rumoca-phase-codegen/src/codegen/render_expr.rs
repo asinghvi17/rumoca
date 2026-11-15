@@ -1245,9 +1245,16 @@ fn render_index(index: &Value, cfg: &ExprConfig) -> RenderResult {
     {
         return render_expression(&folded, cfg);
     }
-    let base = get_field(index, "base")
-        .map_err(|_| render_err("Index missing 'base' field"))
-        .and_then(|v| render_expression(&v, cfg))?;
+    let base_value =
+        get_field(index, "base").map_err(|_| render_err("Index missing 'base' field"))?;
+    let base = render_expression(&base_value, cfg)?;
+    // MCP-0031 permits selection of a component reference or a parenthesized
+    // expression. Unfolded calls must retain this source syntax.
+    let base = if cfg.base_modelica && get_field(&base_value, "VarRef").is_err() {
+        format!("({base})")
+    } else {
+        base
+    };
     let subs = get_field(index, "subscripts")
         .map_err(|_| render_err("Index missing 'subscripts' field"))?;
     let len = subs.len().unwrap_or(0);

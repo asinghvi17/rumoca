@@ -101,7 +101,7 @@
 {%- for key in ["min", "max", "start", "nominal"] -%}
 {%- if var[key] is not none and not (key == "start" and skip_start) -%}
 {%- if index is none -%}
-{%- set ns.parts = ns.parts + [mod(var, key, render_expr(var[key], cfg), flat_source_attribute_shape(var.instance_id, key).each if var.dims | length > 0 else false)] -%}
+{%- set ns.parts = ns.parts + [mod(var, key, render_expr(var[key], cfg), flat_source_attribute_rank(var.instance_id, key).each if var.dims | length > 0 else false)] -%}
 {%- else -%}
 {%- set ns.parts = ns.parts + [key ~ " = " ~ render_expr(array_element(var[key], index, flat.variables), cfg)] -%}
 {%- endif -%}

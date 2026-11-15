@@ -316,7 +316,7 @@ changes this freeze or supplies production retirement authority.
 The Flat source-attribute catalog borrows a validated finalized Model and
 issues `each` only from known scalar rank on an array occurrence. Queries are
 per attribute; an unknown unrendered attribute cannot refuse another attribute.
-Reference occurrence, resolved field and callable ranks, subscript ranks, and
+Reference occurrence, resolved enum literals, field and callable ranks, subscript ranks, and
 array-construction axes are reused without evaluating dimension sizes.
 Call rank includes vectorization axes beyond declared input ranks; colon sizes
 and omitted defaulted inputs do not require literal extents. Unknown ranks

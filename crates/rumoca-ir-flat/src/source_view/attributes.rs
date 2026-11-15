@@ -6,7 +6,10 @@ mod ranks;
 mod tests;
 
 use crate::{Model, ModelShapeContractError, Variable};
-use rumoca_core::{DefId, Expression, Function, FunctionInstanceId, InstanceId, Span, VarName};
+use rumoca_core::{
+    DefId, EnumerationDeclaration, Expression, Function, FunctionInstanceId, InstanceId, Span,
+    VarName,
+};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +61,7 @@ pub struct SourceAttributeCatalog<'model> {
     occurrences: HashMap<InstanceId, (&'model VarName, usize)>,
     functions: HashMap<FunctionInstanceId, &'model Function>,
     fields: HashMap<DefId, usize>,
+    enumerations: HashMap<DefId, &'model EnumerationDeclaration>,
 }
 
 impl Model {
@@ -92,6 +96,15 @@ impl Model {
                         .fields
                         .iter()
                         .map(|field| (field.def_id, field.dims.len()))
+                })
+                .collect(),
+            enumerations: self
+                .type_ids_by_def_id
+                .iter()
+                .filter_map(|(def_id, type_id)| {
+                    self.enumeration_declarations
+                        .get(type_id)
+                        .map(|declaration| (*def_id, declaration))
                 })
                 .collect(),
         })

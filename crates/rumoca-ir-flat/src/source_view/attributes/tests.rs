@@ -145,6 +145,64 @@ fn unknown_attribute_does_not_refuse_a_different_attribute() {
 }
 
 #[test]
+fn enumeration_literals_require_resolved_declaration_and_member_identity() {
+    let enum_id = DefId::new(90);
+    let type_id = TypeId::new(90);
+    for (resolved, literal, expected) in [
+        (enum_id, "U", true),
+        (DefId::new(91), "U", false),
+        (enum_id, "Missing", false),
+    ] {
+        let component = ComponentReference::construct(
+            false,
+            span(),
+            vec![
+                ComponentRefPart {
+                    ident: "Logic".into(),
+                    span: span(),
+                    def_id: enum_id,
+                    subs: vec![],
+                },
+                ComponentRefPart {
+                    ident: literal.into(),
+                    span: span(),
+                    def_id: resolved,
+                    subs: vec![],
+                },
+            ],
+        )
+        .unwrap();
+        let expression = Expression::VarRef {
+            name: Reference::with_component_reference(format!("Logic.{literal}"), component)
+                .with_instance_id(InstanceId::new(999)),
+            subscripts: vec![],
+            span: span(),
+        };
+        let mut model = model(vec![2], expression, vec![]);
+        model.type_ids_by_def_id.insert(enum_id, type_id);
+        model.enumeration_declarations.insert(
+            type_id,
+            EnumerationDeclaration {
+                name: "Logic".into(),
+                literals: vec!["U".into(), "X".into()],
+            },
+        );
+        let catalog = model.source_attributes().unwrap();
+        let result = catalog.attribute(InstanceId::new(1), SourceAttributeKind::Start);
+        if expected {
+            let value = result.unwrap().unwrap();
+            assert_eq!(value.rank(), 0);
+            assert!(value.each());
+        } else {
+            assert!(matches!(
+                result,
+                Err(SourceAttributeError::UnknownShape { .. })
+            ));
+        }
+    }
+}
+
+#[test]
 fn calls_use_exact_callable_rank_with_defaults_colons_and_vectorization() {
     for (input_dims, output_dims, argument_dims, defaulted, expected) in [
         (vec![], vec![2], vec![], false, 1),

@@ -458,6 +458,19 @@ end SelectedAttributes;";
 }
 
 #[test]
+fn enumeration_literal_starts_are_scalar_and_replicated() {
+    let source = "type Logic = enumeration(U, X);
+model EnumStart
+  Logic x[2](each start=Logic.U);
+equation
+  x={Logic.U, Logic.X};
+end EnumStart;";
+    let out = render_ok(source, "EnumStart", "base-modelica");
+    assert!(out.contains("start = fill('Logic'.U, 2)"), "{out}");
+    recompiles(&out, "EnumStart");
+}
+
+#[test]
 fn array_attribute_calls_use_input_and_output_rank() {
     for (inputs, output, algorithm, call, size) in [
         (

@@ -54,6 +54,19 @@ impl SourceAttributeCatalog<'_> {
     }
 
     fn reference_rank(&self, name: &Reference) -> Option<usize> {
+        // MLS §4.9.5: a literal belongs to the enum declaration Resolve
+        // selected, independently of the enclosing instance's scope identity.
+        if let Some(declaration) = name
+            .target_def_id()
+            .and_then(|id| self.enumerations.get(&id))
+        {
+            let reference = name.component_ref()?;
+            return (reference.parts().iter().all(|part| part.subs.is_empty())
+                && declaration
+                    .literals
+                    .contains(&reference.parts().last()?.ident))
+            .then_some(0);
+        }
         let (path, rank) = self.occurrences.get(&name.instance_id()?)?;
         if ComponentPath::from_reference(name).var_name() == *path {
             return Some(*rank);

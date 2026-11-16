@@ -53,39 +53,42 @@ impl SourceAttributeCatalog<'_> {
         }
     }
 
+    pub(super) fn minimum_rank(&self, expression: &Expression) -> Option<usize> {
+        self.rank(expression)
+            .or_else(|| self.array_rank_lower_bound(expression))
+    }
+
     /// Positive lower bounds prove arrayness without inventing an exact rank.
-    /// In particular, vectorization can add axes to an array-returning call.
-    pub(super) fn array_rank_lower_bound(&self, expression: &Expression) -> Option<usize> {
+    /// Each enclosing operation must preserve the guaranteed axes; a product
+    /// of two possible vectors, for example, does not prove an array result.
+    fn array_rank_lower_bound(&self, expression: &Expression) -> Option<usize> {
         let rank = match expression {
             Expression::FunctionCall { name, args, .. } => {
-                let function = self.functions.get(&name.resolved_function()?.instance_id)?;
-                if args.len() > function.inputs.len()
-                    || function.inputs[args.len()..]
-                        .iter()
-                        .any(|input| input.default.is_none())
-                {
-                    return None;
-                }
-                function.outputs.first()?.dimensions().len()
+                self.call_rank_lower_bound(name, args)?
             }
-            Expression::Array { kind, .. } => {
+            Expression::Array { elements, kind, .. } => {
+                let element_rank = elements
+                    .iter()
+                    .map(|value| self.minimum_rank(value).unwrap_or(0))
+                    .min()
+                    .unwrap_or(0);
                 if kind.concatenation_axis().is_some() {
-                    2
+                    element_rank.max(2)
                 } else {
-                    1
+                    element_rank + 1
                 }
             }
-            Expression::ArrayComprehension { indices, .. } => indices.len(),
-            Expression::BuiltinCall {
-                function: BuiltinFunction::Fill,
-                args,
-                ..
-            } if args.len() > 1 => args.len() - 1,
+            Expression::ArrayComprehension { expr, indices, .. } => {
+                indices.len() + self.minimum_rank(expr).unwrap_or(0)
+            }
+            Expression::BuiltinCall { function, args, .. } => {
+                self.builtin_rank_lower_bound(*function, args)?
+            }
             Expression::Index {
                 base, subscripts, ..
             } => {
-                // Scalar selectors remove axes; colons and known vector
-                // selectors retain them. Unknown selectors remove at most one.
+                // Unknown selectors remove at most one axis. A known vector
+                // selector or colon retains the selected axis (MLS §10.6.9).
                 let removed = subscripts
                     .iter()
                     .filter(|subscript| match subscript {
@@ -94,12 +97,74 @@ impl SourceAttributeCatalog<'_> {
                         Subscript::Index { .. } => true,
                     })
                     .count();
-                self.array_rank_lower_bound(base)?.checked_sub(removed)?
+                self.minimum_rank(base)?.checked_sub(removed)?
             }
-            Expression::Unary { rhs, .. } => self.array_rank_lower_bound(rhs)?,
+            Expression::Unary { rhs, .. } => self.minimum_rank(rhs)?,
+            Expression::Binary { op, lhs, rhs, .. } => {
+                binary_rank_lower_bound(op, self.minimum_rank(lhs)?, self.minimum_rank(rhs)?)?
+            }
+            Expression::If {
+                branches,
+                else_branch,
+                ..
+            } => {
+                let mut rank = self.minimum_rank(else_branch)?;
+                for (_, value) in branches {
+                    rank = rank.min(self.minimum_rank(value)?);
+                }
+                rank
+            }
+            Expression::FieldAccess {
+                base, field_def_id, ..
+            } => self.minimum_rank(base)? + self.fields.get(field_def_id)?,
             _ => return None,
         };
         (rank > 0).then_some(rank)
+    }
+
+    fn call_rank_lower_bound(&self, name: &Reference, args: &[Expression]) -> Option<usize> {
+        let function = self.functions.get(&name.resolved_function()?.instance_id)?;
+        if args.len() > function.inputs.len()
+            || function.inputs[args.len()..]
+                .iter()
+                .any(|input| input.default.is_none())
+        {
+            return None;
+        }
+        // MLS §12.4.6: every guaranteed excess input axis vectorizes the
+        // result. Unknown argument ranks never imply zero excess axes.
+        let vectorized = args
+            .iter()
+            .zip(&function.inputs)
+            .filter_map(|(arg, input)| {
+                self.minimum_rank(arg)?
+                    .checked_sub(input.dimensions().len())
+            })
+            .max()
+            .unwrap_or(0);
+        Some(function.outputs.first()?.dimensions().len() + vectorized)
+    }
+
+    fn builtin_rank_lower_bound(
+        &self,
+        function: BuiltinFunction,
+        args: &[Expression],
+    ) -> Option<usize> {
+        use BuiltinFunction::*;
+        if let Some(value) = rank_preserving_argument(function, args) {
+            return self.minimum_rank(value);
+        }
+        match (function, args) {
+            (Fill, [value, sizes @ ..]) if !sizes.is_empty() => {
+                Some(sizes.len() + self.minimum_rank(value).unwrap_or(0))
+            }
+            (Min | Max | Div | Mod | Rem | Atan2, [lhs, rhs]) => {
+                let lhs = self.minimum_rank(lhs)?;
+                let rhs = self.minimum_rank(rhs)?;
+                (lhs > 0 && rhs > 0).then_some(lhs.max(rhs))
+            }
+            _ => None,
+        }
     }
 
     fn reference_rank(&self, name: &Reference) -> Option<usize> {
@@ -179,18 +244,14 @@ impl SourceAttributeCatalog<'_> {
 
     fn builtin_rank(&self, function: BuiltinFunction, args: &[Expression]) -> Option<usize> {
         use BuiltinFunction::*;
+        if let Some(value) = rank_preserving_argument(function, args) {
+            return self.rank(value);
+        }
         match (function, args) {
             (Fill, [value, sizes @ ..]) if !sizes.is_empty() => {
                 Some(sizes.len() + self.rank(value)?)
             }
             (Zeros | Ones, sizes) if !sizes.is_empty() => Some(sizes.len()),
-            (
-                Abs | Sign | Sqrt | Floor | Ceil | Sin | Cos | Tan | Asin | Acos | Atan | Sinh
-                | Cosh | Tanh | Exp | Log | Log10 | Integer | NoEvent | Pre | Der | Transpose,
-                [value],
-            ) => self.rank(value),
-            (Smooth, [_, value]) => self.rank(value),
-            (Homotopy, [value, _]) => self.rank(value),
             (Sum | Product | Min | Max | Ndims | Scalar, [_]) | (Size, [_, _]) => Some(0),
             (Size | Vector, [_]) | (Linspace, [_, _, _]) => Some(1),
             (Matrix | Identity | Diagonal, [_]) | (OuterProduct, [_, _]) => Some(2),
@@ -216,5 +277,37 @@ fn binary_rank(op: &OpBinary, lhs: usize, rhs: usize) -> Option<usize> {
         Exp if rhs == 0 => Some(lhs),
         Eq | Neq | Lt | Le | Gt | Ge if lhs == 0 && rhs == 0 => Some(0),
         _ => None,
+    }
+}
+
+/// These builtins preserve operand rank, including all vectorization axes.
+fn rank_preserving_argument(function: BuiltinFunction, args: &[Expression]) -> Option<&Expression> {
+    use BuiltinFunction::*;
+    match (function, args) {
+        (
+            Abs | Sign | Sqrt | Floor | Ceil | Sin | Cos | Tan | Asin | Acos | Atan | Sinh | Cosh
+            | Tanh | Exp | Log | Log10 | Integer | NoEvent | Pre | Der | Transpose,
+            [value],
+        )
+        | (Smooth, [_, value])
+        | (Homotopy, [value, _]) => Some(value),
+        _ => None,
+    }
+}
+
+fn binary_rank_lower_bound(op: &OpBinary, lhs: usize, rhs: usize) -> Option<usize> {
+    use OpBinary::*;
+    match op {
+        // MLS §10.6.2 and §10.6.12 require equal array shapes here. Either
+        // operand's guaranteed axes therefore also belong to the result.
+        Add | Sub | And | Or | AddElem | SubElem | MulElem | DivElem | ExpElem
+            if lhs > 0 && rhs > 0 =>
+        {
+            Some(lhs.max(rhs))
+        }
+        // MLS §10.6.4 contracts two non-scalar operands over one axis each.
+        // Two rank-one lower bounds cannot distinguish a dot product.
+        Mul if lhs > 0 && rhs > 0 => (lhs + rhs).checked_sub(2),
+        _ => binary_rank(op, lhs, rhs),
     }
 }

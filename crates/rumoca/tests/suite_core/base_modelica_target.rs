@@ -7,6 +7,8 @@
 
 use rumoca::{Compiler, render_target_files};
 
+mod comprehension_attributes;
+
 fn render(source: &str, model: &str, target: &str) -> Result<String, String> {
     let compiled = Compiler::new()
         .model(model)

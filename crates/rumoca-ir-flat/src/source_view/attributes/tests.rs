@@ -1,3 +1,5 @@
+mod composed;
+
 use super::*;
 use rumoca_core::{
     ArrayConstructor, BuiltinFunction, ComponentRefPart, ComponentReference, EffectiveType,

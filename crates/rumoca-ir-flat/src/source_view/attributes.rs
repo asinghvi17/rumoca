@@ -134,14 +134,13 @@ impl<'model> SourceAttributeCatalog<'model> {
         let Some(expression) = expression else {
             return Ok(None);
         };
-        let minimum_rank = self
-            .rank(expression)
-            .or_else(|| self.array_rank_lower_bound(expression))
-            .ok_or(SourceAttributeError::UnknownShape {
-                variable: instance,
-                attribute: kind,
-                span: expression.span().unwrap_or(variable.source_span),
-            })?;
+        let minimum_rank =
+            self.minimum_rank(expression)
+                .ok_or(SourceAttributeError::UnknownShape {
+                    variable: instance,
+                    attribute: kind,
+                    span: expression.span().unwrap_or(variable.source_span),
+                })?;
         Ok(Some(SourceAttributeValue {
             kind,
             expression,

@@ -265,7 +265,10 @@ fn declaration(
             .find(|input| input["name"].as_str() == Some(field.as_str()))
             .cloned()
             .ok_or_else(|| unresolved(&format!("`{record}` has no member `{field}`")))?;
-        record = member["type_name"].as_str().unwrap_or_default().to_string();
+        record = member["type_name"]
+            .as_str()
+            .ok_or_else(|| unresolved(&format!("member `{field}` has no declared type")))?
+            .to_string();
     }
     member["name"] = json!("-member");
     member["default"] = Json::Null;
@@ -288,4 +291,23 @@ fn declaration(
             "description": null,
         },
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accessor_declaration_refuses_a_member_without_a_declared_type() {
+        let functions = json!({
+            "f": { "outputs": [{ "type_name": "R" }], "inputs": [], "pure": true },
+            "R": { "is_constructor": true, "inputs": [{ "name": "q" }] },
+        });
+        let error = declaration(&functions, "f".into(), vec!["q".into()])
+            .expect_err("a missing member type cannot become an empty type name");
+        assert!(
+            error.to_string().contains("has no declared type"),
+            "{error}"
+        );
+    }
 }

@@ -1300,6 +1300,10 @@ fn render_field_access(fa: &Value, cfg: &ExprConfig) -> RenderResult {
     Ok(format!("{base}.{field}"))
 }
 
+fn no_base_modelica_member_read() -> Result<Option<String>, minijinja::Error> {
+    Ok(Option::None)
+}
+
 /// Base Modelica has no member access on an `if` expression or a call
 /// (MCP-0031 `primary`): the read moves into the `if` arms, a constructor's
 /// member is its argument, and any other call's member is read by the
@@ -1310,12 +1314,12 @@ fn render_base_modelica_member_read(
 ) -> Result<Option<String>, minijinja::Error> {
     use super::base_modelica_accessors as accessors;
     let Some((root, path)) = accessors::member_chain(fa) else {
-        return Ok(None);
+        return no_base_modelica_member_read();
     };
     let is_if = get_field(&root, "If").is_ok();
     let call = get_field(&root, "FunctionCall").ok();
     if !is_if && call.is_none() {
-        return Ok(None);
+        return no_base_modelica_member_read();
     }
     let root_json = serde_json::to_value(&root)
         .map_err(|err| render_err(format!("unserializable member-access root: {err}")))?;
@@ -1328,7 +1332,7 @@ fn render_base_modelica_member_read(
         return render_expression(&Value::from_serialize(lowered), cfg).map(Some);
     }
     let Some(call) = call else {
-        return Ok(None);
+        return no_base_modelica_member_read();
     };
     let function = render_name_field(&call, "name", "FunctionCall")?;
     let accessor = accessors::accessor_name(&function, &path);

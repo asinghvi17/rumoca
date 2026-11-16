@@ -68,20 +68,24 @@ pub(super) fn expand(eq: &Json, layout: &Layout<'_>, rows: &mut Vec<Json>) -> Ex
     Ok(())
 }
 
+fn no_record_expansion<T>() -> Expansion<Option<T>> {
+    Ok(Option::None)
+}
+
 /// The (field target, field value) pairs of `eq`, when it equates a flattened
 /// scalar record with a value whose fields can be named.
 fn field_pairs(eq: &Json, layout: &Layout<'_>) -> Expansion<Option<Vec<(Json, Json)>>> {
     let Some(binary) = eq["residual"].get("Binary") else {
-        return Ok(None);
+        return no_record_expansion();
     };
     if !matches!(binary["op"].as_str(), Some("Sub" | "SubElem")) {
-        return Ok(None);
+        return no_record_expansion();
     }
     let Some(target) = record_ref(&binary["lhs"], layout) else {
-        return Ok(None);
+        return no_record_expansion();
     };
     let Some(fields) = record_fields(&target, layout)? else {
-        return Ok(None);
+        return no_record_expansion();
     };
     let value = &binary["rhs"];
     let values: Vec<Json> = if let Some(source) = record_ref(value, layout) {
@@ -92,7 +96,7 @@ fn field_pairs(eq: &Json, layout: &Layout<'_>) -> Expansion<Option<Vec<(Json, Js
     } else if let Some(call) = value.get("FunctionCall") {
         if call["is_constructor"].as_bool() == Some(true) {
             let Some(values) = constructor_arguments(call, fields.len(), layout) else {
-                return Ok(None);
+                return no_record_expansion();
             };
             values
         } else {
@@ -102,7 +106,7 @@ fn field_pairs(eq: &Json, layout: &Layout<'_>) -> Expansion<Option<Vec<(Json, Js
                 .collect()
         }
     } else {
-        return Ok(None);
+        return no_record_expansion();
     };
     Ok(Some(
         fields
@@ -137,16 +141,16 @@ fn instance_dims_empty(instance: &Value) -> bool {
 /// The declared field names of the record type of instance `name`.
 fn record_fields(name: &str, layout: &Layout<'_>) -> Expansion<Option<Vec<String>>> {
     let Some(instance) = item(layout.instances, &Value::from(name)) else {
-        return Ok(None);
+        return no_record_expansion();
     };
     let Some(type_id) = item(&instance, &Value::from("type_def_id")) else {
-        return Ok(None);
+        return no_record_expansion();
     };
     let Some(record) = item(layout.types, &type_id) else {
-        return Ok(None);
+        return no_record_expansion();
     };
     let Some(fields) = item(&record, &Value::from("fields")) else {
-        return Ok(None);
+        return no_record_expansion();
     };
     let mut names = Vec::new();
     for field in fields
@@ -154,7 +158,7 @@ fn record_fields(name: &str, layout: &Layout<'_>) -> Expansion<Option<Vec<String
         .map_err(|err| render_err(format!("record type fields are not a list: {err}")))?
     {
         let Some(name) = item(&field, &Value::from("name")) else {
-            return Ok(None);
+            return no_record_expansion();
         };
         names.push(name.to_string());
     }

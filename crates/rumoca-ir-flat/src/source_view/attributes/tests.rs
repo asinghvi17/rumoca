@@ -394,6 +394,31 @@ fn symbolic_sizes_and_subscripted_elements_have_value_independent_rank() {
     }
 }
 
+fn reference_with_subscript(embedded: bool, subscript: Subscript) -> Expression {
+    let instance = InstanceId::new(2);
+    let (name, subscripts) = if embedded {
+        let component = ComponentReference::construct(
+            false,
+            span(),
+            vec![ComponentRefPart {
+                ident: "p".into(),
+                span: span(),
+                def_id: DefId::new(22),
+                subs: vec![subscript],
+            }],
+        )
+        .unwrap();
+        (Reference::with_component_reference("p", component), vec![])
+    } else {
+        (Reference::new("p"), vec![subscript])
+    };
+    Expression::VarRef {
+        name: name.with_instance_id(instance),
+        subscripts,
+        span: span(),
+    }
+}
+
 #[test]
 fn structured_and_outer_subscripts_preserve_only_unselected_axes() {
     for dims in [vec![2], vec![2, 3]] {
@@ -412,31 +437,7 @@ fn structured_and_outer_subscripts_preserve_only_unselected_axes() {
         ] {
             let expected = dims.len() - usize::from(matches!(subscript, Subscript::Index { .. }));
             for embedded in [false, true] {
-                let mut name = Reference::new("p").with_instance_id(InstanceId::new(2));
-                if embedded {
-                    let component = ComponentReference::construct(
-                        false,
-                        span(),
-                        vec![ComponentRefPart {
-                            ident: "p".into(),
-                            span: span(),
-                            def_id: DefId::new(22),
-                            subs: vec![subscript.clone()],
-                        }],
-                    )
-                    .unwrap();
-                    name = Reference::with_component_reference("p", component)
-                        .with_instance_id(InstanceId::new(2));
-                }
-                let expression = Expression::VarRef {
-                    name,
-                    subscripts: if embedded {
-                        vec![]
-                    } else {
-                        vec![subscript.clone()]
-                    },
-                    span: span(),
-                };
+                let expression = reference_with_subscript(embedded, subscript.clone());
                 let model = model(vec![2], expression, dims.clone());
                 let catalog = model.source_attributes().unwrap();
                 assert_eq!(start(&catalog).minimum_rank(), expected);

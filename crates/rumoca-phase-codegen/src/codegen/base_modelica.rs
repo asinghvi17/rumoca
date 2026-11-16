@@ -124,8 +124,8 @@ fn slice_extent(sub: &serde_json::Value, extent: Option<i64>) -> Option<Extent> 
         }],
     };
     let count = i64::try_from(domain.scalar_count().ok()?).ok()?;
-    let extent = extent?;
     if count > 0 {
+        let extent = extent?;
         let last = i128::from(start) + i128::from(count - 1) * i128::from(step);
         if !(1..=extent).contains(&start) || !(1..=i128::from(extent)).contains(&last) {
             return None;

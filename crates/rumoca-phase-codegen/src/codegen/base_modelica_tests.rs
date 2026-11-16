@@ -286,3 +286,39 @@ fn fill_slice_with_unknown_extent_retains_parenthesized_selection() {
     ).unwrap();
     assert_eq!(rendered, "(fill(7, 'n'))[1]");
 }
+
+#[test]
+fn empty_fill_slice_with_symbolic_extent_folds_without_bounds_proof() {
+    let integer = |value| serde_json::json!({"Literal": {"value": {"Integer": value}}});
+    for (start, step, end, empty) in [
+        (1, 1, 0, true),
+        (2, 2, 1, true),
+        (1, -2, 2, true),
+        (1, 1, 2, false),
+        (-1, 1, 1, false),
+        (1, 0, 0, false),
+    ] {
+        let slice = Value::from_serialize(serde_json::json!({
+            "base": {"BuiltinCall": {"function": "Fill", "args": [
+                integer(7), {"VarRef": {"name": "n", "subscripts": []}}
+            ]}},
+            "subscripts": [{"Expr": {"expr": {"Range": {
+                "start": integer(start), "step": integer(step), "end": integer(end)
+            }}}}]
+        }));
+        let folded = base_modelica::fold_fill_slice(&slice);
+        if empty {
+            let folded =
+                serde_json::to_value(folded.expect("empty selection needs no extent")).unwrap();
+            assert_eq!(
+                folded["BuiltinCall"]["args"],
+                serde_json::json!([integer(7), integer(0)])
+            );
+        } else {
+            assert!(
+                folded.is_none(),
+                "nonempty or invalid selection needs proof"
+            );
+        }
+    }
+}

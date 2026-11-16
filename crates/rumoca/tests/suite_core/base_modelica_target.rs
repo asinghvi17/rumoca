@@ -395,6 +395,37 @@ end EmptySlice;"
     }
 }
 
+#[test]
+fn empty_fill_slice_with_symbolic_extent_exports_zero_extent() {
+    let source = "model EmptySym
+  parameter Integer n=3;
+  Real x[0](start=(fill(7,n))[1:0]);
+end EmptySym;";
+    let out = render_ok(source, "EmptySym", "base-modelica");
+    assert!(out.contains("start = fill(7, 0)"), "{out}");
+    recompiles(&out, "EmptySym");
+}
+
+#[test]
+fn iterator_dependent_array_attributes_export_without_replication() {
+    for value in [
+        "{a[i] for i in 1:n}",
+        "{i*1.0 for i in 1:n}",
+        "{sin(i) for i in 1:n}",
+    ] {
+        for attribute in ["start", "min", "max", "nominal"] {
+            let source = format!(
+                "model CompAttr parameter Integer n=3; parameter Real a[n]={{1,2,3}};
+                 Real x[n]({attribute}={value}); equation der(x)=-x; end CompAttr;"
+            );
+            let out = render_ok(&source, "CompAttr", "base-modelica");
+            assert!(out.contains(&format!("{attribute} = {{")), "{out}");
+            assert!(!out.contains(&format!("{attribute} = fill(")), "{out}");
+            recompiles(&out, "CompAttr");
+        }
+    }
+}
+
 /// MLS §7.2.5 and §10: only scalar attributes need replication. Sizes
 /// may depend on parameters, and selecting an array can retain array axes.
 #[test]

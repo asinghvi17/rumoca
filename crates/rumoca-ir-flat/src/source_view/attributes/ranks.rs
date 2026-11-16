@@ -75,6 +75,7 @@ impl SourceAttributeCatalog<'_> {
                     1
                 }
             }
+            Expression::ArrayComprehension { indices, .. } => indices.len(),
             Expression::BuiltinCall {
                 function: BuiltinFunction::Fill,
                 args,

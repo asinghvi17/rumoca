@@ -101,6 +101,42 @@ fn reference_rank_comes_from_exact_finalized_occurrence_without_rechecking_exten
 }
 
 #[test]
+fn comprehension_binders_prove_arrayness_without_an_occurrence_rank() {
+    use rumoca_core::{ComprehensionIndex, IndexBinderProvenance};
+    for names in [vec!["i"], vec!["i", "j"]] {
+        let expression = Expression::ArrayComprehension {
+            expr: Box::new(reference("i", None)),
+            filter: None,
+            indices: names
+                .iter()
+                .map(|name| ComprehensionIndex {
+                    binder: IndexBinderProvenance::Generated,
+                    name: (*name).into(),
+                    range: Expression::Range {
+                        start: Box::new(Expression::Literal {
+                            value: Literal::Integer(1),
+                            span: span(),
+                        }),
+                        step: None,
+                        end: Box::new(Expression::Literal {
+                            value: Literal::Integer(3),
+                            span: span(),
+                        }),
+                        span: span(),
+                    },
+                })
+                .collect(),
+            span: span(),
+        };
+        let model = model(vec![3; names.len()], expression, vec![]);
+        let catalog = model.source_attributes().unwrap();
+        let value = start(&catalog);
+        assert_eq!(value.minimum_rank(), names.len());
+        assert!(!value.each());
+    }
+}
+
+#[test]
 fn rendered_name_alone_or_mismatched_identity_cannot_issue_rank() {
     for expression in [
         reference("p", None),
